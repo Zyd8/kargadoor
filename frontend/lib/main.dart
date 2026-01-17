@@ -6,8 +6,14 @@ import 'pages/test/test.dart';
 // import 'pages/home/home_page.dart';
 
 void main() async {
-  // Load environment variables
-  await dotenv.load(fileName: ".env");
+  // Load environment variables (handle missing file gracefully)
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    debugPrint('Warning: Could not load .env file: $e');
+    // Continue anyway - app will show error message if API key is missing
+  }
+  
   runApp(const MyApp());
 }
 
