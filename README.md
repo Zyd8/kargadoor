@@ -1,4 +1,4 @@
-# BrighteEats Logistics Project
+# Logistics Project
 
 A Flutter-based logistics management system with cross-platform support (Web, Android, iOS).
 
