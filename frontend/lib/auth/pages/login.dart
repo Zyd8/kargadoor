@@ -1,5 +1,7 @@
+// Enter Login Page logic here
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../pages/register.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -38,6 +40,15 @@ class _LoginPageState extends State<LoginPage> {
             TextField(controller: _passwordController, decoration: const InputDecoration(labelText: "Password"), obscureText: true),
             const SizedBox(height: 20),
             ElevatedButton(onPressed: _login, child: const Text("Login")),
+            TextButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const RegisterPage()),
+              );
+            },
+            child: const Text("Don't have an account? Register here"),
+          )
           ],
         ),
       ),
