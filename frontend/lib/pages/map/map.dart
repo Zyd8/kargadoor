@@ -1,13 +1,9 @@
 import 'dart:convert' as convert;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-
-// Conditional imports for web-only libraries
-// On web: imports real dart:html, dart:js, dart:ui_web
-// On mobile: imports stub file for type checking
-import 'dart:html' if (dart.library.io) 'map_web_stub.dart' as html;
-import 'dart:js' if (dart.library.io) 'map_web_stub.dart' as js;
-import 'dart:ui_web' if (dart.library.io) 'map_web_stub.dart' as ui;
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart' as latlong;
+import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 
 class MapPage extends StatefulWidget {
   final String apiKey;
@@ -18,113 +14,93 @@ class MapPage extends StatefulWidget {
 }
 
 class _MapPageState extends State<MapPage> {
-  final String _viewType = 'tomtom-map-${DateTime.now().millisecondsSinceEpoch}';
+  final MapController _mapController = MapController();
   bool _isMapInitialized = false;
   bool _isLoadingLocation = false;
   bool _locationShared = false;
   String? _currentAddress;
+  latlong.LatLng? _userLocation;
 
   @override
   void initState() {
     super.initState();
-
-    if (kIsWeb) {
-      ui.platformViewRegistry.registerViewFactory(
-        _viewType,
-        (int viewId) {
-          final divElement = html.DivElement()
-            ..id = 'tomtom-map'
-            ..style.width = '100%'
-            ..style.height = '100%';
-          
-          Future.delayed(const Duration(milliseconds: 100), () {
-            if (mounted) {
-              _initializeMap();
-            }
-          });
-          
-          return divElement;
-        },
-      );
-    } else {
-      // On mobile, mark as initialized so we can show the message
-      _isMapInitialized = true;
-    }
-  }
-
-  void _initializeMap() {
-    if (!kIsWeb) return;
-    
-    try {
-      js.context.callMethod('initTomTomMap', [widget.apiKey]);
-      if (mounted) {
-        setState(() {
-          _isMapInitialized = true;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error initializing TomTom map: $e');
-    }
+    // Mobile: Initialize flutter_map immediately
+    _isMapInitialized = true;
   }
 
   Future<void> _shareMyLocation() async {
-    if (!kIsWeb) return;
-    
     setState(() {
       _isLoadingLocation = true;
     });
 
     try {
-      // Request geolocation permission and get current position
-      final position = await html.window.navigator.geolocation.getCurrentPosition(
-        enableHighAccuracy: true,
-        timeout: const Duration(seconds: 10),
-        maximumAge: const Duration(seconds: 0),
-      );
-      
-      final lat = position.coords?.latitude?.toDouble();
-      final lng = position.coords?.longitude?.toDouble();
+      // Mobile: Use geolocator package
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception('Location services are disabled');
+      }
 
-      if (lat != null && lng != null) {
-        debugPrint('Location obtained: $lat, $lng');
-        
-        // Add marker and center map on user's location
-        js.context.callMethod('addUserLocationMarker', [lat, lng]);
-        
-        // Reverse geocode to get address
-        final address = await _reverseGeocode(lat, lng);
-        
-        setState(() {
-          _locationShared = true;
-          _isLoadingLocation = false;
-          _currentAddress = address;
-        });
-
-        // Show success message
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.check_circle, color: Colors.white),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(address ?? 'Location shared successfully'),
-                  ),
-                ],
-              ),
-              backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 3),
-            ),
-          );
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          throw Exception('Location permissions are denied');
         }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception(
+          'Location permissions are permanently denied. Please enable them in app settings.',
+        );
+      }
+
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      final lat = position.latitude;
+      final lng = position.longitude;
+
+      debugPrint('Location obtained: $lat, $lng');
+
+      // Update map center on mobile
+      _userLocation = latlong.LatLng(lat, lng);
+      _mapController.move(_userLocation!, 16.0);
+
+      // Reverse geocode to get address
+      final address = await _reverseGeocode(lat, lng);
+
+      setState(() {
+        _locationShared = true;
+        _isLoadingLocation = false;
+        _currentAddress = address;
+        _userLocation = latlong.LatLng(lat, lng);
+      });
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(address ?? 'Location shared successfully'),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
     } catch (e) {
       setState(() {
         _isLoadingLocation = false;
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -132,8 +108,12 @@ class _MapPageState extends State<MapPage> {
               children: [
                 const Icon(Icons.error_outline, color: Colors.white),
                 const SizedBox(width: 8),
-                const Expanded(
-                  child: Text('Unable to get your location. Please enable location services.'),
+                Expanded(
+                  child: Text(
+                    e.toString().contains('permission') || e.toString().contains('denied')
+                        ? e.toString()
+                        : 'Unable to get your location. Please enable location services.',
+                  ),
                 ),
               ],
             ),
@@ -147,41 +127,14 @@ class _MapPageState extends State<MapPage> {
   }
 
   Future<String?> _reverseGeocode(double lat, double lng) async {
-    if (!kIsWeb) {
-      return null; // Not available on mobile
-    }
-    
     try {
-      final response = await html.HttpRequest.request(
-        'https://api.tomtom.com/search/2/reverseGeocode/$lat,$lng.json?key=${widget.apiKey}',
-        method: 'GET',
-      );
-      
-      if (response.status == 200 && response.responseText != null) {
-        final data = convert.jsonDecode(response.responseText!);
-        final addresses = data['addresses'] as List?;
-        
-        if (addresses != null && addresses.isNotEmpty) {
-          final address = addresses[0]['address'] as Map<String, dynamic>?;
-          if (address != null) {
-            // Try to get freeformAddress first, then construct from parts
-            final freeformAddress = address['freeformAddress'] as String?;
-            if (freeformAddress != null && freeformAddress.isNotEmpty) {
-              return freeformAddress;
-            }
-            
-            // Fallback: construct address from parts
-            final parts = <String>[];
-            if (address['streetName'] != null) parts.add(address['streetName']);
-            if (address['municipality'] != null) parts.add(address['municipality']);
-            if (address['countrySubdivision'] != null) parts.add(address['countrySubdivision']);
-            if (address['postalCode'] != null) parts.add(address['postalCode']);
-            if (address['country'] != null) parts.add(address['country']);
-            
-            return parts.isNotEmpty ? parts.join(', ') : 'Current Location';
-          }
-        }
-        return 'Current Location';
+      final url = 'https://api.tomtom.com/search/2/reverseGeocode/$lat,$lng.json?key=${widget.apiKey}';
+      final uri = Uri.parse(url);
+      final response = await http.get(uri);
+
+      if (response.statusCode == 200) {
+        final data = convert.jsonDecode(response.body);
+        return _parseAddress(data);
       }
     } catch (e) {
       debugPrint('Reverse geocode error: $e');
@@ -189,60 +142,104 @@ class _MapPageState extends State<MapPage> {
     return null;
   }
 
-  void _recenterMap() {
-    if (!kIsWeb || !_locationShared) return;
-    
-    try {
-      js.context.callMethod('recenterToUserLocation');
-    } catch (e) {
-      debugPrint('Error recentering map: $e');
+  String? _parseAddress(dynamic data) {
+    final addresses = data['addresses'] as List?;
+
+    if (addresses != null && addresses.isNotEmpty) {
+      final address = addresses[0]['address'] as Map<String, dynamic>?;
+      if (address != null) {
+        // Try to get freeformAddress first, then construct from parts
+        final freeformAddress = address['freeformAddress'] as String?;
+        if (freeformAddress != null && freeformAddress.isNotEmpty) {
+          return freeformAddress;
+        }
+
+        // Fallback: construct address from parts
+        final parts = <String>[];
+        if (address['streetName'] != null) parts.add(address['streetName']);
+        if (address['municipality'] != null) parts.add(address['municipality']);
+        if (address['countrySubdivision'] != null) parts.add(address['countrySubdivision']);
+        if (address['postalCode'] != null) parts.add(address['postalCode']);
+        if (address['country'] != null) parts.add(address['country']);
+
+        return parts.isNotEmpty ? parts.join(', ') : 'Current Location';
+      }
     }
+    return 'Current Location';
   }
 
-  @override
-  Widget build(BuildContext context) {
-    // Show message on mobile - don't try to use any web APIs
-    if (!kIsWeb) {
-      return Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.map_outlined,
-                size: 64,
-                color: Colors.grey,
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'TomTom Map',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Maps are only available on Flutter Web',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey,
+  void _recenterMap() {
+    if (!_locationShared || _userLocation == null) return;
+
+    // Mobile: Use flutter_map controller
+    _mapController.move(_userLocation!, 16.0);
+  }
+
+  Widget _buildMapView() {
+    // Mobile: Use flutter_map with TomTom raster tiles
+    final center = _userLocation ?? const latlong.LatLng(14.6760, 121.0437); // Manila default
+
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(
+        initialCenter: center,
+        initialZoom: _userLocation != null ? 16.0 : 13.0,
+        minZoom: 3.0,
+        maxZoom: 19.0,
+      ),
+      children: [
+        // TomTom raster tiles layer
+        TileLayer(
+          urlTemplate: 'https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${widget.apiKey}',
+          userAgentPackageName: 'com.project.logistics',
+          tileSize: 256,
+          maxZoom: 19,
+          subdomains: const ['a', 'b', 'c', 'd'],
+        ),
+        // User location marker
+        if (_userLocation != null)
+          MarkerLayer(
+            markers: [
+              Marker(
+                point: _userLocation!,
+                width: 40,
+                height: 40,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.blue,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.blue.withOpacity(0.3),
+                        blurRadius: 8,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.location_on,
+                    color: Colors.white,
+                    size: 24,
+                  ),
                 ),
               ),
             ],
           ),
-        ),
-      );
-    }
-    
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return SizedBox.expand(
       child: Stack(
         children: [
           // Map View - Full Screen
           Positioned.fill(
-            child: HtmlElementView(viewType: _viewType),
+            child: _buildMapView(),
           ),
-        
+
           // Loading Indicator
           if (!_isMapInitialized)
             Container(
@@ -251,11 +248,11 @@ class _MapPageState extends State<MapPage> {
                 child: CircularProgressIndicator(),
               ),
             ),
-        
-          // Top Search Bar (like Lalamove/Google Maps)
+
+          // Top Search Bar
           if (_isMapInitialized)
             Positioned(
-              top: 16,
+              top: MediaQuery.of(context).padding.top + 16,
               left: 16,
               right: 16,
               child: Material(
@@ -285,7 +282,7 @@ class _MapPageState extends State<MapPage> {
                 ),
               ),
             ),
-        
+
           // Recenter Button (only show if location is shared)
           if (_isMapInitialized && _locationShared)
             Positioned(
@@ -313,7 +310,7 @@ class _MapPageState extends State<MapPage> {
                 ),
               ),
             ),
-        
+
           // Share Location Button
           if (_isMapInitialized)
             Positioned(
@@ -370,7 +367,7 @@ class _MapPageState extends State<MapPage> {
                 ),
               ),
             ),
-        
+
           // Location Info Card (when location is shared)
           if (_isMapInitialized && _locationShared && _currentAddress != null)
             Positioned(
