@@ -6,6 +6,8 @@ import 'package:latlong2/latlong.dart' as latlong;
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart' show LatLngBounds, CameraFit;
+import 'package:frontend/auth/services/auth_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class MapPage extends StatefulWidget {
   final String apiKey;
@@ -37,6 +39,9 @@ class _MapPageState extends State<MapPage> {
   void initState() {
     super.initState();
     _isMapInitialized = true;
+
+    final user = Supabase.instance.client.auth.currentUser;
+    debugPrint("Logged in as: ${user?.email}");
   }
 
   @override
@@ -993,6 +998,58 @@ class _MapPageState extends State<MapPage> {
                   ),
                 ),
               ),
+              //LOGOUT BUTTON
+              Positioned(
+              top: MediaQuery.of(context).padding.top + 80,
+              right: 16,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  // The Logout Button
+                  FloatingActionButton.small(
+                    heroTag: 'logout_fab',
+                    backgroundColor: Colors.white,
+                    elevation: 4,
+                    // sign out auth
+                    onPressed: () async {
+                      await AuthService().signOut();                
+                    },
+                    child: const Icon(Icons.logout, color: Colors.red),
+                  ),
+                  const SizedBox(height: 8),
+                  // User Identity Badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.9),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.blue.withOpacity(0.2)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 5,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.account_circle, size: 16, color: Colors.blue),
+                        const SizedBox(width: 6),
+                        Text(
+                          Supabase.instance.client.auth.currentUser?.email ?? 'User',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
