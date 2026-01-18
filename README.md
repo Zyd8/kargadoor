@@ -150,7 +150,3 @@ flutter run -d ios
 - **[SETUP_NORMAL.md](SETUP_NORMAL.md)** - Normal Flutter setup guide
 - **[SETUP_DOCKER.md](SETUP_DOCKER.md)** - Docker setup guide
 - **[scripts/README.md](scripts/README.md)** - Scripts documentation
-
-## License
-
-[Your License Here]
