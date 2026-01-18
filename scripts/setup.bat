@@ -106,15 +106,8 @@ if not defined SKIP_ADB (
         echo.
         echo   Opening ADB server in a new window...
         
-        REM Create temporary ADB server script
-        echo # ADB Server for Docker Containers > start-adb-server.bat
-        echo # Keep this window open! >> start-adb-server.bat
-        echo @echo off >> start-adb-server.bat
-        echo echo Starting ADB server in network mode... >> start-adb-server.bat
-        echo adb -a -P 5037 nodaemon server start >> start-adb-server.bat
-        
-        REM Start ADB server in new window
-        start "ADB Server" cmd /k start-adb-server.bat
+        REM Start ADB server using the script in scripts folder
+        start "ADB Server" cmd /k scripts\start-adb-server.bat
         
         echo   Waiting for ADB server to start...
         timeout /t 3 >nul
@@ -202,6 +195,8 @@ echo    flutter run -d android  # Run on device
 echo    flutter run -d chrome   # Run on web
 echo.
 echo For detailed instructions, see SETUP_GUIDE.md
+echo.
+echo Note: All scripts are in the scripts\ folder
 echo.
 echo ========================================
 echo   Setup Complete!

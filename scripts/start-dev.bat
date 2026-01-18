@@ -27,7 +27,7 @@ if errorlevel 1 (
     echo [!] ADB server is not running
     echo.
     echo Please start ADB server in a separate window:
-    echo   start-adb.bat
+    echo   scripts\start-adb.bat
     echo   OR
     echo   adb -a -P 5037 nodaemon server start
     echo.

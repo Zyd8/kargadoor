@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'pages/map/map.dart';
-// Import other pages here as needed
-import 'pages/test/test.dart';
-// import 'pages/home/home_page.dart';
 
 void main() async {
   // Load environment variables (handle missing file gracefully)
@@ -54,9 +51,6 @@ class MyApp extends StatelessWidget {
         ),
       ),
       
-      // Examples of how to switch pages:
-      // home: const TestPage(),
-      // home: Scaffold(body: YourNewPage()),
     );
   }
 }
