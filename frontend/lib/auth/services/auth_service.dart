@@ -19,11 +19,24 @@ class AuthService {
   Stream<AuthState> get authStateStream => _supabase.auth.onAuthStateChange;
 
   // Sign Up with email and password
-  Future<String?> signUp({required String email, required String password}) async {
+  Future<String?> signUp({
+    required String email,
+    required String password,
+    //required String firstName,
+    //required String lastName,
+    required String phone,
+    required String fullName,
+  
+  }) async {
     try {
       await Supabase.instance.client.auth.signUp(
         email: email,
         password: password,
+        data:{
+          'phone_number': phone,
+          'name':fullName
+        }
+
       );
       return null; // Success
     } catch (e) {
@@ -31,9 +44,35 @@ class AuthService {
     }
   }
 
-  // Sign In with email and password
-  Future<AuthResponse> signIn(String email, String password) async {
-    return await _supabase.auth.signInWithPassword(email: email, password: password);
+  // Sign In with email or phone and password
+  Future<AuthResponse> signIn(String identifier, String password) async {
+    String email = identifier;
+
+    if (!identifier.contains('@')) {
+      String formattedPhone = identifier;
+
+      // convert 09 to +63 to match db
+      if (identifier.startsWith('09')) {
+        formattedPhone = '+63${identifier.substring(1)}';
+      }
+      // checks the email in profile table
+      final response = await _supabase
+          .from('PROFILE')
+          .select('EMAIL') 
+          .eq('PHONE_NUMBER', formattedPhone)
+          .maybeSingle();
+
+      if (response != null && response['EMAIL'] != null) {
+            email = response['EMAIL'];
+          } else {
+            throw "No account found with that phone number.";
+          }
+        }
+
+    return await _supabase.auth.signInWithPassword(
+      email: email, 
+      password: password
+      );
   }
 
   // Sign Out

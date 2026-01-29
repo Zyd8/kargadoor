@@ -12,12 +12,25 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _authService = AuthService();
-  final _emailController = TextEditingController();
+  final _identifierController = TextEditingController();
+
+  //final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
   void _login() async {
+    // validation
+    if (_identifierController.text.isEmpty || _passwordController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please fill in all fields")),
+      );
+      return;
+    }
+
     try {
-      await _authService.signIn(_emailController.text, _passwordController.text);
+      await _authService.signIn(
+        _identifierController.text.trim(),
+        _passwordController.text
+        );
 
     } catch (e) {
       if (mounted) {
@@ -36,7 +49,10 @@ class _LoginPageState extends State<LoginPage> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            TextField(controller: _emailController, decoration: const InputDecoration(labelText: "Email")),
+            TextField(controller: _identifierController, decoration: const InputDecoration(labelText: "Email or Mobile Number", hintText:"user@email.com or 09123456789",
+            ),
+          ),
+
             TextField(controller: _passwordController, decoration: const InputDecoration(labelText: "Password"), obscureText: true),
             const SizedBox(height: 20),
             ElevatedButton(onPressed: _login, child: const Text("Login")),
