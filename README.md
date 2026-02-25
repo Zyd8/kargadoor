@@ -1,152 +1,50 @@
-# Logistics Project
+# Welcome to your Expo app 👋
 
-A Flutter-based logistics management system with cross-platform support (Web, Android, iOS).
+This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
-## Features
+## Get started
 
-- 🗺️ **TomTom Maps Integration** - Works on both web and mobile platforms
-- 📱 **Cross-Platform** - Single codebase for web, Android, and iOS
-- 🐳 **Docker Support** - Optional Dockerized development environment
-- 🔧 **Modern Architecture** - Clean code structure with services, models, and widgets
+1. Install dependencies
 
-## Quick Start
-
-Choose your preferred setup method:
-
-### Option 1: Normal Flutter Setup ⭐ (Recommended for Beginners)
-
-**Best for:** Developers who want Flutter installed locally, easier debugging, and faster iteration.
-
-👉 **[See Normal Flutter Setup Guide →](SETUP_NORMAL.md)**
-
-**Prerequisites:**
-- Flutter SDK (3.10.7 or higher)
-- Android Studio (for Android development)
-- Xcode (for iOS development, macOS only)
-
-**Quick Steps:**
-```bash
-cd frontend
-flutter pub get
-echo TOMTOM_API_KEY=your_key > .env
-flutter run -d chrome
-```
-
-### Option 2: Docker Setup 🐳
-
-**Best for:** Developers who don't want to install Flutter locally, or need isolated environments.
-
-👉 **[See Docker Setup Guide →](SETUP_DOCKER.md)**
-
-**Prerequisites:**
-- Docker Desktop
-- ADB (Android Debug Bridge)
-
-**Quick Steps:**
-```cmd
-scripts\setup.bat
-docker-compose exec flutter bash
-cd /home/developer/app
-flutter pub get
-flutter run -d chrome
-```
-
-## Setup Guides
-
-- **[SETUP_NORMAL.md](SETUP_NORMAL.md)** - Complete guide for local Flutter installation
-- **[SETUP_DOCKER.md](SETUP_DOCKER.md)** - Complete guide for Docker-based setup
-
-## Project Structure
-
-```
-frontend/
-├── lib/
-│   ├── config/          # App configuration
-│   ├── models/          # Data models (Location, Address)
-│   ├── services/        # Business logic (MapService - cross-platform)
-│   ├── widgets/         # Reusable UI components
-│   └── pages/           # Screen widgets (map.dart - cross-platform)
-├── web/                 # Web-specific assets (HTML, JS, CSS)
-├── android/             # Android-specific configuration
-└── ios/                 # iOS-specific configuration
-```
-
-## Configuration
-
-### Environment Variables
-
-Create a `.env` file in the `frontend/` directory:
-
-```env
-TOMTOM_API_KEY=your_tomtom_api_key_here
-```
-
-Get your API key from: https://developer.tomtom.com/
-
-## Available Scripts (Windows)
-
-All scripts are in the `scripts/` folder:
-
-- **`scripts\setup.bat`** - Complete automated setup (Docker, run once)
-- **`scripts\start-adb.bat`** - Start ADB server in network mode (Docker, run daily)
-- **`scripts\start-dev.bat`** - Start Docker containers (Docker, run daily)
-
-See [scripts/README.md](scripts/README.md) for detailed script documentation.
-
-## Running the App
-
-### Normal Flutter Setup
-
-```bash
-cd frontend
-
-# Web
-flutter run -d chrome
-
-# Android (connect device or start emulator first)
-flutter run -d android
-
-# iOS (macOS only)
-flutter run -d ios
-```
-
-### Docker Setup
-
-1. Start ADB server: `scripts\start-adb.bat` (keep window open)
-2. Start containers: `scripts\start-dev.bat`
-3. Enter container: `docker-compose exec flutter bash`
-4. Inside container:
    ```bash
-   cd /home/developer/app
-   flutter run -d chrome --web-port 3000 --web-hostname 0.0.0.0
+   npm install
    ```
 
-## Troubleshooting
+2. Start the app
 
-### Normal Flutter Setup
+   ```bash
+   npx expo start
+   ```
 
-- **Flutter not found**: Add Flutter to your PATH
-- **Devices not showing**: Run `flutter doctor` to check setup
-- **API key error**: Make sure `.env` file exists in `frontend/` directory
+In the output, you'll find options to open the app in a
 
-👉 See [SETUP_NORMAL.md](SETUP_NORMAL.md) for detailed troubleshooting
+- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
+- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
+- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
+- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
 
-### Docker Setup
+You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
-- **Docker not running**: Start Docker Desktop
-- **ADB connection issues**: Make sure ADB server is running (`scripts\start-adb.bat`)
-- **Container won't start**: Check `docker-compose logs flutter`
+## Get a fresh project
 
-👉 See [SETUP_DOCKER.md](SETUP_DOCKER.md) for detailed troubleshooting
+When you're ready, run:
 
-## Technology Stack
+```bash
+npm run reset-project
+```
 
-- **Flutter** - Cross-platform UI framework
-- **TomTom Maps** - Map services (Web: JavaScript SDK, Mobile: REST API tiles)
-- **Docker** - Containerized development environment (optional)
+This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
 
-## Documentation
+## Learn more
 
-- **[SETUP_NORMAL.md](SETUP_NORMAL.md)** - Normal Flutter setup guide
-- **[SETUP_DOCKER.md](SETUP_DOCKER.md)** - Docker setup guide
-- **[scripts/README.md](scripts/README.md)** - Scripts documentation
+To learn more about developing your project with Expo, look at the following resources:
+
+- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
+- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+
+## Join the community
+
+Join our community of developers creating universal apps.
+
+- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
+- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
