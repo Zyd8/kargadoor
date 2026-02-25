@@ -1,36 +1,57 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Constants from 'expo-constants';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Modal,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import WebView from 'react-native-webview';
 
+import DeliveryMapModal from '@/components/DeliveryMapModal';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 
 const PRIMARY = '#1B6B4A';
+const TOMTOM_KEY = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
 
 type Package = {
   ID: string;
+  SENDER_ID?: string | null;
+  DRIVER_ID?: string | null;
   PICKUP_ADDRESS: string | null;
+  PICKUP_LAT: number | null;
+  PICKUP_LNG: number | null;
   RECIPIENT_ADDRESS: string | null;
+  DROPOFF_LAT: number | null;
+  DROPOFF_LNG: number | null;
   RECIPIENT_NAME: string | null;
+  RECIPIENT_NUMBER: string | null;
+  ORDER_CONTACT: string | null;
   VEHICLE_TYPE: string | null;
+  PAYMENT_METHOD: string | null;
+  ITEM_TYPES: string | null;
+  NOTES: string | null;
   STATUS: string | null;
+  PRICE: number | null;
   CREATED_AT: string | null;
+  ACCEPTED_AT: string | null;
+  COMPLETED_AT: string | null;
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  PENDING:       '#F59E0B',
-  'IN PROGRESS': PRIMARY,
-  COMPLETE:      '#6B7280',
-  CANCELLED:     '#EF4444',
+  PENDING:     '#F59E0B',
+  IN_PROGRESS: PRIMARY,
+  COMPLETE:    '#6B7280',
+  CANCELLED:   '#EF4444',
 };
 
 const VEHICLE_ICON: Record<string, React.ComponentProps<typeof MaterialIcons>['name']> = {
@@ -40,22 +61,82 @@ const VEHICLE_ICON: Record<string, React.ComponentProps<typeof MaterialIcons>['n
 };
 
 function StatusBadge({ status }: { status: string | null }) {
-  const label = (status ?? 'PENDING').toUpperCase();
+  const label = status ?? 'PENDING';
   const color = STATUS_COLOR[label] ?? '#888';
   return (
     <View style={[styles.badge, { backgroundColor: color + '22', borderColor: color }]}>
-      <Text style={[styles.badgeText, { color }]}>{label}</Text>
+      <Text style={[styles.badgeText, { color }]}>{label.replace('_', ' ')}</Text>
     </View>
   );
 }
 
-function OrderCard({ item }: { item: Package }) {
+function routeThumbnailHTML(pickupLat: number, pickupLng: number, dropoffLat: number, dropoffLng: number): string {
+  const centerLat = (pickupLat + dropoffLat) / 2;
+  const centerLng = (pickupLng + dropoffLng) / 2;
+  const K = TOMTOM_KEY;
+  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script></head>
+<body style="margin:0"><div id="m" style="width:100%;height:100%;min-height:72px;"></div>
+<script>
+var map = L.map('m',{zoomControl:false,attributionControl:false}).setView([${centerLat},${centerLng}], 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+L.tileLayer('https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${K}&tileSize=256',{maxZoom:22}).addTo(map);
+L.circleMarker([${pickupLat},${pickupLng}],{radius:6,fillColor:'#1B6B4A',color:'#fff',weight:2,fillOpacity:1}).addTo(map);
+L.circleMarker([${dropoffLat},${dropoffLng}],{radius:6,fillColor:'#F59E0B',color:'#fff',weight:2,fillOpacity:1}).addTo(map);
+var line = L.polyline([[${pickupLat},${pickupLng}],[${dropoffLat},${dropoffLng}]],{color:'#1B6B4A',weight:3,opacity:0.7}).addTo(map);
+map.fitBounds(line.getBounds(),{padding:[8,8]});
+</script></body></html>`;
+}
+
+function RouteThumbnail({ pickupLat, pickupLng, dropoffLat, dropoffLng }: {
+  pickupLat: number; pickupLng: number; dropoffLat: number; dropoffLng: number;
+}) {
+  const html = routeThumbnailHTML(pickupLat, pickupLng, dropoffLat, dropoffLng);
+  return (
+    <View style={styles.thumbnailWrap}>
+      <WebView
+        source={{ html }}
+        style={styles.thumbnailMap}
+        scrollEnabled={false}
+        pointerEvents="none"
+        originWhitelist={['*']}
+      />
+    </View>
+  );
+}
+
+function OrderCard({
+  item,
+  isDriver,
+  onPress,
+  onDelivered,
+}: {
+  item: Package;
+  isDriver: boolean;
+  onPress: (pkg: Package) => void;
+  onDelivered: (pkg: Package) => void;
+}) {
   const vehicleIcon = VEHICLE_ICON[item.VEHICLE_TYPE ?? ''] ?? 'local-shipping';
   const pickup  = item.PICKUP_ADDRESS   ?? '—';
   const dropoff = item.RECIPIENT_ADDRESS ?? '—';
+  const showDeliverBtn = isDriver && item.STATUS === 'IN_PROGRESS';
+  const hasRoute = item.PICKUP_LAT != null && item.PICKUP_LNG != null && item.DROPOFF_LAT != null && item.DROPOFF_LNG != null;
 
   return (
-    <View style={styles.card}>
+    <TouchableOpacity
+      style={styles.card}
+      onPress={() => onPress(item)}
+      activeOpacity={0.85}
+    >
+      {hasRoute && (
+        <RouteThumbnail
+          pickupLat={item.PICKUP_LAT!}
+          pickupLng={item.PICKUP_LNG!}
+          dropoffLat={item.DROPOFF_LAT!}
+          dropoffLng={item.DROPOFF_LNG!}
+        />
+      )}
       <View style={styles.cardTop}>
         <View style={styles.vehicleCircle}>
           <MaterialIcons name={vehicleIcon} size={22} color={PRIMARY} />
@@ -67,42 +148,128 @@ function OrderCard({ item }: { item: Package }) {
         </View>
         <StatusBadge status={item.STATUS} />
       </View>
-      {item.RECIPIENT_NAME ? (
-        <Text style={styles.cardSub}>
-          To: {item.RECIPIENT_NAME}
-          {item.VEHICLE_TYPE ? `  ·  ${item.VEHICLE_TYPE.charAt(0).toUpperCase() + item.VEHICLE_TYPE.slice(1)}` : ''}
-        </Text>
-      ) : null}
+
+      <View style={styles.cardFooter}>
+        {item.RECIPIENT_NAME ? (
+          <Text style={styles.cardSub}>
+            To: {item.RECIPIENT_NAME}
+            {item.VEHICLE_TYPE ? `  ·  ${item.VEHICLE_TYPE.charAt(0).toUpperCase() + item.VEHICLE_TYPE.slice(1)}` : ''}
+          </Text>
+        ) : null}
+        {item.PRICE ? (
+          <Text style={styles.cardPrice}>
+            ₱{Number(item.PRICE).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+          </Text>
+        ) : null}
+      </View>
+
+      {showDeliverBtn && (
+        <TouchableOpacity
+          style={styles.deliverBtn}
+          onPress={(e) => { e.stopPropagation(); onDelivered(item); }}
+          activeOpacity={0.85}
+        >
+          <MaterialIcons name="check-circle" size={18} color="#fff" />
+          <Text style={styles.deliverBtnText}>Mark as Delivered</Text>
+        </TouchableOpacity>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+function OrderDetailModal({
+  item,
+  isDriver,
+  onClose,
+  onMarkDelivered,
+}: {
+  item: Package;
+  isDriver: boolean;
+  onClose: () => void;
+  onMarkDelivered?: (pkg: Package) => void;
+}) {
+  const vehicleLabel = (item.VEHICLE_TYPE ?? '—').charAt(0).toUpperCase() + (item.VEHICLE_TYPE ?? '').slice(1);
+  const paymentLabel = (item.PAYMENT_METHOD ?? '—').charAt(0).toUpperCase() + (item.PAYMENT_METHOD ?? '').slice(1);
+  const showDeliverBtn = isDriver && item.STATUS === 'IN_PROGRESS';
+
+  const formatDate = (s: string | null) => {
+    if (!s) return '—';
+    try {
+      const d = new Date(s);
+      return d.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
+    } catch { return s; }
+  };
+
+  return (
+    <Modal visible animationType="slide" transparent>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Order details</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.modalClose}>
+              <MaterialIcons name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+            <DetailRow label="Status" value={(item.STATUS ?? '—').replace('_', ' ')} />
+            <DetailRow label="Pick-up" value={item.PICKUP_ADDRESS ?? '—'} />
+            <DetailRow label="Drop-off" value={item.RECIPIENT_ADDRESS ?? '—'} />
+            <DetailRow label="Recipient" value={item.RECIPIENT_NAME ?? '—'} />
+            <DetailRow label="Contact" value={item.ORDER_CONTACT ?? item.RECIPIENT_NUMBER ?? '—'} />
+            <DetailRow label="Vehicle" value={vehicleLabel} />
+            <DetailRow label="Payment" value={paymentLabel} />
+            <DetailRow label="Items" value={item.ITEM_TYPES ?? '—'} />
+            {item.NOTES ? <DetailRow label="Notes" value={item.NOTES} /> : null}
+            <DetailRow label="Price" value={item.PRICE != null ? `₱${Number(item.PRICE).toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : '—'} />
+            <DetailRow label="Created" value={formatDate(item.CREATED_AT)} />
+            {item.ACCEPTED_AT ? <DetailRow label="Accepted" value={formatDate(item.ACCEPTED_AT)} /> : null}
+            {item.COMPLETED_AT ? <DetailRow label="Completed" value={formatDate(item.COMPLETED_AT)} /> : null}
+          </ScrollView>
+          {showDeliverBtn && onMarkDelivered && (
+            <TouchableOpacity
+              style={styles.modalDeliverBtn}
+              onPress={() => { onClose(); onMarkDelivered(item); }}
+              activeOpacity={0.85}
+            >
+              <MaterialIcons name="check-circle" size={20} color="#fff" />
+              <Text style={styles.modalDeliverBtnText}>Mark as Delivered</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.detailRow}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue} selectable>{value}</Text>
     </View>
   );
 }
 
 export default function OrdersScreen() {
   const { user, userRole } = useAuth();
-  const isDriver = userRole === 'DRIVER';
-  const [orders, setOrders] = useState<Package[]>([]);
-  const [loading, setLoading] = useState(true);
+  const isDriver = (userRole ?? 'USER').toUpperCase() === 'DRIVER';
+  const [orders, setOrders]         = useState<Package[]>([]);
+  const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<Package | null>(null);
+  const [deliveryTarget, setDeliveryTarget] = useState<Package | null>(null);
 
   const fetchOrders = useCallback(async () => {
-    if (!user) { setLoading(false); return; }
-    let query = supabase
-      .from('PACKAGES')
-      .select('ID, PICKUP_ADDRESS, RECIPIENT_ADDRESS, RECIPIENT_NAME, VEHICLE_TYPE, STATUS, CREATED_AT');
-
-    if (isDriver) {
-      // Driver sees orders they've accepted
-      query = query.eq('DRIVER_ID', user.id);
-    } else {
-      // User sees orders they've placed
-      query = query.eq('SENDER_ID', user.id);
-    }
-
-    const { data } = await query.order('CREATED_AT', { ascending: false });
-    setOrders((data as Package[]) ?? []);
+    if (!user) { setOrders([]); setLoading(false); setRefreshing(false); return; }
+    const { data } = await supabase.rpc('get_my_orders', {
+      p_user_id: user.id,
+      p_is_driver: isDriver,
+    });
+    const list = Array.isArray(data) ? (data as Package[]) : [];
+    setOrders(list);
     setLoading(false);
     setRefreshing(false);
-  }, [user, isDriver]);
+  }, [user?.id, isDriver]);
 
   useFocusEffect(
     useCallback(() => {
@@ -130,7 +297,14 @@ export default function OrdersScreen() {
         <FlatList
           data={orders}
           keyExtractor={(item) => item.ID}
-          renderItem={({ item }) => <OrderCard item={item} />}
+          renderItem={({ item }) => (
+            <OrderCard
+              item={item}
+              isDriver={isDriver}
+              onPress={setSelectedOrder}
+              onDelivered={setDeliveryTarget}
+            />
+          )}
           contentContainerStyle={orders.length === 0 ? styles.emptyContainer : styles.listContent}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={PRIMARY} />
@@ -148,6 +322,30 @@ export default function OrdersScreen() {
               </Text>
             </View>
           }
+        />
+      )}
+
+      {selectedOrder && (
+        <OrderDetailModal
+          item={selectedOrder}
+          isDriver={isDriver}
+          onClose={() => setSelectedOrder(null)}
+          onMarkDelivered={(pkg) => { setSelectedOrder(null); setDeliveryTarget(pkg); }}
+        />
+      )}
+
+      {deliveryTarget && (
+        <DeliveryMapModal
+          visible={!!deliveryTarget}
+          packageId={deliveryTarget.ID}
+          dropoffLat={deliveryTarget.DROPOFF_LAT}
+          dropoffLng={deliveryTarget.DROPOFF_LNG}
+          dropoffAddress={deliveryTarget.RECIPIENT_ADDRESS}
+          onClose={() => setDeliveryTarget(null)}
+          onDelivered={() => {
+            setDeliveryTarget(null);
+            fetchOrders();
+          }}
         />
       )}
     </SafeAreaView>
@@ -173,18 +371,48 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 4,
     elevation: 2,
+    overflow: 'hidden',
   },
+  thumbnailWrap:  { height: 72, width: '100%', marginHorizontal: -14, marginTop: -14, marginBottom: 10, backgroundColor: '#E8EDE8' },
+  thumbnailMap:   { flex: 1, height: 72 },
   cardTop:      { flexDirection: 'row', alignItems: 'center' },
   vehicleCircle:{ width: 42, height: 42, borderRadius: 10, backgroundColor: '#EEF2EE', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   cardMid:      { flex: 1, marginRight: 8 },
   cardRoute:    { fontSize: 13, color: '#333', fontWeight: '500' },
   cardArrow:    { fontSize: 11, color: '#C0C8C0', marginVertical: 1 },
-  cardSub:      { fontSize: 12, color: '#999', marginTop: 8, marginLeft: 52 },
+  cardFooter:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginLeft: 52 },
+  cardSub:      { fontSize: 12, color: '#999', flex: 1 },
+  cardPrice:    { fontSize: 13, fontWeight: '700', color: PRIMARY },
 
   badge:    { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
   badgeText:{ fontSize: 10, fontWeight: '800', letterSpacing: 0.3 },
 
+  deliverBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 12,
+    backgroundColor: PRIMARY,
+    borderRadius: 10,
+    paddingVertical: 11,
+  },
+  deliverBtnText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+
   empty:        { flex: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 60 },
   emptyTitle:   { fontSize: 17, fontWeight: '600', color: '#444', marginTop: 14, marginBottom: 6 },
   emptySubtitle:{ fontSize: 14, color: '#888', textAlign: 'center', paddingHorizontal: 40 },
+
+  modalOverlay:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalContent:    { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%' },
+  modalHeader:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#E8E8E8' },
+  modalTitle:      { fontSize: 20, fontWeight: '700', color: '#1A1A1A' },
+  modalClose:      { padding: 4 },
+  modalScroll:     { maxHeight: 400 },
+  modalScrollContent: { paddingHorizontal: 20, paddingVertical: 16, paddingBottom: 24 },
+  detailRow:       { marginBottom: 14 },
+  detailLabel:     { fontSize: 11, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
+  detailValue:     { fontSize: 15, color: '#1A1A1A', lineHeight: 22 },
+  modalDeliverBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: PRIMARY, marginHorizontal: 20, marginBottom: 24, paddingVertical: 14, borderRadius: 12 },
+  modalDeliverBtnText: { fontSize: 16, fontWeight: '700', color: '#fff' },
 });

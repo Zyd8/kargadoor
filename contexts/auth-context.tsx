@@ -1,8 +1,29 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
+import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
 
 import { supabase } from '@/lib/supabase';
+
+async function registerPushToken(userId: string) {
+  try {
+    if (Platform.OS === 'web') return;
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    let finalStatus = existing;
+    if (existing !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted') return;
+    const tokenData = await Notifications.getExpoPushTokenAsync();
+    if (tokenData?.data) {
+      await supabase.from('PROFILE').update({ PUSH_TOKEN: tokenData.data }).eq('ID', userId);
+    }
+  } catch {
+    // Push token registration is best-effort
+  }
+}
 
 const DEBUG_BYPASS_KEY = 'auth_use_without_account';
 
@@ -62,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!mounted) return;
       setSession(s ?? null);
       setUser(s?.user ?? null);
+      if (s?.user?.id) registerPushToken(s.user.id);
     });
 
     return () => {

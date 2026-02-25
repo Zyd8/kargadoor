@@ -1,6 +1,6 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -121,6 +121,7 @@ export default function AddScreen() {
   const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [estimatedPrice, setEstimatedPrice] = useState<number | null>(null);
 
   const blankForm = (): OrderForm => ({
     pickup:        EMPTY_LOC,
@@ -151,6 +152,25 @@ export default function AddScreen() {
   const step2Valid =
     form.recipientName.trim().length > 0 &&
     form.contactNumber.trim().length > 6;
+
+  // Fetch delivery quote when we have coordinates and vehicle (for step 2 & 3)
+  useEffect(() => {
+    const lat = form.pickup.lat != null && form.dropoff.lat != null && form.vehicleType !== '';
+    if (!lat) { setEstimatedPrice(null); return; }
+    let mounted = true;
+    (async () => {
+      const { data } = await supabase.rpc('get_delivery_quote', {
+        p_vehicle_type: form.vehicleType,
+        p_pickup_lat: form.pickup.lat,
+        p_pickup_lng: form.pickup.lng,
+        p_dropoff_lat: form.dropoff.lat,
+        p_dropoff_lng: form.dropoff.lng,
+      });
+      if (!mounted) return;
+      setEstimatedPrice(data != null ? Number(data) : null);
+    })();
+    return () => { mounted = false; };
+  }, [form.pickup.lat, form.pickup.lng, form.dropoff.lat, form.dropoff.lng, form.vehicleType]);
 
   const handleSubmit = async () => {
     if (!user) {
@@ -263,6 +283,13 @@ export default function AddScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {estimatedPrice != null && (
+          <View style={styles.priceRow}>
+            <MaterialIcons name="local-shipping" size={20} color={PRIMARY} />
+            <Text style={styles.priceLabel}>Estimated delivery</Text>
+            <Text style={styles.priceValue}>₱{estimatedPrice.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</Text>
+          </View>
+        )}
         <Text style={styles.sectionLabel}>Recipient</Text>
         <InputRow
           icon="person"
@@ -325,6 +352,13 @@ export default function AddScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {estimatedPrice != null && (
+          <View style={styles.priceRow}>
+            <MaterialIcons name="local-shipping" size={20} color={PRIMARY} />
+            <Text style={styles.priceLabel}>Delivery price</Text>
+            <Text style={styles.priceValue}>₱{estimatedPrice.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</Text>
+          </View>
+        )}
         <Text style={styles.sectionLabel}>Type of Delivery Items</Text>
 
         {ITEM_TYPES.map((type) => {
@@ -396,6 +430,9 @@ const styles = StyleSheet.create({
   dotActive:   { backgroundColor: PRIMARY },
 
   content:      { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 20 },
+  priceRow:     { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0F9F4', borderRadius: 12, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: PRIMARY + '40', gap: 10 },
+  priceLabel:   { flex: 1, fontSize: 14, color: '#444', fontWeight: '600' },
+  priceValue:   { fontSize: 18, fontWeight: '800', color: PRIMARY },
   sectionLabel: { fontSize: 12, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 },
   fieldHint:    { fontSize: 12, color: '#BBB', marginTop: -6, marginBottom: 16, marginLeft: 4 },
 

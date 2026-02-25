@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
@@ -11,31 +12,40 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
-// SecureStore works in Expo Go; it has a 2048-byte limit. Skip persisting when over limit to avoid warning — session still works in memory.
+// SecureStore has a 2048-byte limit. Values larger than that (e.g. Supabase JWTs with
+// metadata) fall back to AsyncStorage so the session is always persisted across restarts
+// and token auto-refresh can find the refresh token after the access token expires.
 const MAX_SECURE_STORE_BYTES = 2048;
+const ASYNC_PREFIX = 'supa_async_';
 
 const expoSecureStoreAdapter = {
   getItem: async (key: string): Promise<string | null> => {
     try {
-      return await SecureStore.getItemAsync(key);
+      const v = await SecureStore.getItemAsync(key);
+      if (v !== null) return v;
+    } catch { /* fall through */ }
+    try {
+      return await AsyncStorage.getItem(ASYNC_PREFIX + key);
     } catch {
       return null;
     }
   },
   setItem: async (key: string, value: string): Promise<void> => {
-    if (value.length > MAX_SECURE_STORE_BYTES) return;
-    try {
-      await SecureStore.setItemAsync(key, value);
-    } catch {
-      // ignore
+    if (value.length <= MAX_SECURE_STORE_BYTES) {
+      try {
+        await SecureStore.setItemAsync(key, value);
+        return;
+      } catch { /* fall through to AsyncStorage */ }
     }
+    try {
+      await AsyncStorage.setItem(ASYNC_PREFIX + key, value);
+    } catch { /* ignore */ }
   },
   removeItem: async (key: string): Promise<void> => {
-    try {
-      await SecureStore.deleteItemAsync(key);
-    } catch {
-      // no-op
-    }
+    await Promise.allSettled([
+      SecureStore.deleteItemAsync(key),
+      AsyncStorage.removeItem(ASYNC_PREFIX + key),
+    ]);
   },
 };
 

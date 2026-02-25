@@ -1,7 +1,7 @@
 /**
  * Find Orders — DRIVER only
  * Shows a Leaflet map centred on the driver's location.
- * Pending orders with coordinates appear as amber pins.
+ * Pending orders within the selected radius appear as amber pins.
  * Driver can tap a pin to see details and accept the order.
  */
 import Constants from 'expo-constants';
@@ -22,9 +22,13 @@ import WebView from 'react-native-webview';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 
-const TOMTOM_KEY   = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
-const DEFAULT_LAT  = 14.5995;
-const DEFAULT_LNG  = 120.9842;
+const TOMTOM_KEY  = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
+const DEFAULT_LAT = 14.5995;
+const DEFAULT_LNG = 120.9842;
+const PRIMARY     = '#1B6B4A';
+
+const RADIUS_OPTIONS = [2, 5, 10, 20, 9999] as const;
+const RADIUS_LABELS: Record<number, string> = { 2: '2 km', 5: '5 km', 10: '10 km', 20: '20 km', 9999: 'Any' };
 
 type PendingOrder = {
   ID: string;
@@ -39,9 +43,25 @@ type PendingOrder = {
   PAYMENT_METHOD: string | null;
 };
 
-function buildMapHTML(apiKey: string, driverLat: number, driverLng: number, orders: PendingOrder[]): string {
-  // Serialise orders safely for injection into JS
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dlat = ((lat2 - lat1) * Math.PI) / 180;
+  const dlng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dlat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dlng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function buildMapHTML(
+  apiKey: string,
+  driverLat: number,
+  driverLng: number,
+  orders: PendingOrder[],
+  radiusKm: number,
+): string {
   const ordersJson = JSON.stringify(orders).replace(/<\//g, '<\\/');
+  const circleRadiusM = radiusKm < 9999 ? radiusKm * 1000 : 0;
 
   return `<!DOCTYPE html>
 <html>
@@ -78,22 +98,38 @@ function buildMapHTML(apiKey: string, driverLat: number, driverLng: number, orde
     {maxZoom:22,errorTileUrl:''}).addTo(map);
   L.control.zoom({position:'topright'}).addTo(map);
 
-  // ── Driver arrow marker ──────────────────────────────────────────────────────
-  var arrowHTML = '<div style="width:36px;height:36px;transform:rotate(0deg);transition:transform 0.25s linear">'
+  // ── Radius circle ─────────────────────────────────────────────────────────
+  var radiusCircle = ${circleRadiusM > 0
+    ? `L.circle([${driverLat},${driverLng}],{radius:${circleRadiusM},color:'${PRIMARY}',fillColor:'${PRIMARY}',fillOpacity:0.06,weight:1.5,dashArray:'6,4'}).addTo(map)`
+    : 'null'
+  };
+
+  window.updateRadius = function(km) {
+    if(radiusCircle) {
+      if(km >= 9999) { radiusCircle.setRadius(0); }
+      else { radiusCircle.setRadius(km * 1000); }
+    } else if(km < 9999) {
+      radiusCircle = L.circle(driverMarker.getLatLng(),{radius:km*1000,color:'${PRIMARY}',fillColor:'${PRIMARY}',fillOpacity:0.06,weight:1.5,dashArray:'6,4'}).addTo(map);
+    }
+  };
+
+  // ── Driver arrow: rotate only the inner div so we don't overwrite Leaflet's position transform
+  var arrowHTML = '<div class="driver-arrow-outer">'
+    + '<div class="driver-arrow-inner" style="width:36px;height:36px;transition:transform 0.25s linear">'
     + '<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">'
     + '<circle cx="18" cy="18" r="17" fill="#1B6B4A" fill-opacity="0.2"/>'
     + '<polygon points="18,4 28,30 18,24 8,30" fill="#1B6B4A" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>'
-    + '</svg></div>';
+    + '</svg></div></div>';
 
   var driverMarker = L.marker([${driverLat},${driverLng}], {
-    icon: L.divIcon({className:'',html:arrowHTML,iconSize:[36,36],iconAnchor:[18,18]}),
-    zIndexOffset: 1000
+    icon: L.divIcon({className:'driver-marker-icon',html:arrowHTML,iconSize:[36,36],iconAnchor:[18,18]}),
+    zIndexOffset: 9999
   }).addTo(map);
 
   var arrowEl = null;
-  map.whenReady(function(){ arrowEl = document.querySelector('#map .leaflet-marker-pane div'); });
+  map.whenReady(function(){ arrowEl = document.querySelector('.driver-arrow-inner'); });
 
-  // ── Order pin icon (amber) ───────────────────────────────────────────────────
+  // ── Order pin icon (amber) ────────────────────────────────────────────────
   function orderIcon(id) {
     return L.divIcon({
       className:'',
@@ -110,22 +146,28 @@ function buildMapHTML(apiKey: string, driverLat: number, driverLng: number, orde
     });
   }
 
-  // ── Render order pins ────────────────────────────────────────────────────────
+  // ── Render order pins (normalize keys for RPC/json) ────────────────────────
   function renderOrders(list) {
-    // Remove old markers
     Object.values(markers).forEach(function(m){ map.removeLayer(m); });
     markers = {};
+    if (!Array.isArray(list)) return;
 
     list.forEach(function(o) {
-      var m = L.marker([o.PICKUP_LAT, o.PICKUP_LNG], {icon: orderIcon(o.ID)}).addTo(map);
+      var lat = o.PICKUP_LAT != null ? o.PICKUP_LAT : (o.pickup_lat);
+      var lng = o.PICKUP_LNG != null ? o.PICKUP_LNG : (o.pickup_lng);
+      if (typeof lat !== 'number' || typeof lng !== 'number' || !isFinite(lat) || !isFinite(lng)) return;
+      var id = o.ID != null ? o.ID : o.id;
+      var m = L.marker([lat, lng], {icon: orderIcon(id)}).addTo(map);
 
-      var pickup  = o.PICKUP_ADDRESS  || 'Unknown pickup';
-      var dropoff = o.RECIPIENT_ADDRESS || 'Unknown dropoff';
-      var vehicle = o.VEHICLE_TYPE ? (o.VEHICLE_TYPE.charAt(0).toUpperCase()+o.VEHICLE_TYPE.slice(1)) : '—';
-      var items   = o.ITEM_TYPES || '—';
-      var contact = o.ORDER_CONTACT || '—';
-      var payment = o.PAYMENT_METHOD ? (o.PAYMENT_METHOD.charAt(0).toUpperCase()+o.PAYMENT_METHOD.slice(1)) : '—';
-      var name    = o.RECIPIENT_NAME || '—';
+      var pickup  = (o.PICKUP_ADDRESS || o.pickup_address) || 'Unknown pickup';
+      var dropoff = (o.RECIPIENT_ADDRESS || o.recipient_address) || 'Unknown dropoff';
+      var vType   = o.VEHICLE_TYPE || o.vehicle_type;
+      var vehicle = vType ? (String(vType).charAt(0).toUpperCase()+String(vType).slice(1)) : '\u2014';
+      var items   = (o.ITEM_TYPES != null ? o.ITEM_TYPES : o.item_types) || '\u2014';
+      var contact = (o.ORDER_CONTACT != null ? o.ORDER_CONTACT : o.order_contact) || '\u2014';
+      var pMeth   = o.PAYMENT_METHOD || o.payment_method;
+      var payment = pMeth ? (String(pMeth).charAt(0).toUpperCase()+String(pMeth).slice(1)) : '\u2014';
+      var name    = (o.RECIPIENT_NAME != null ? o.RECIPIENT_NAME : o.recipient_name) || '\u2014';
 
       var popupHtml = '<div class="order-popup">'
         + '<h3>Delivery Order</h3>'
@@ -140,32 +182,30 @@ function buildMapHTML(apiKey: string, driverLat: number, driverLng: number, orde
         + '</div>';
 
       m.bindPopup(popupHtml, {maxWidth:260, minWidth:220});
-      markers[o.ID] = m;
+      markers[id] = m;
     });
   }
 
   renderOrders(orders);
 
-  // ── Accept order ─────────────────────────────────────────────────────────────
+  // ── Accept order ──────────────────────────────────────────────────────────
   window.acceptOrder = function(id) {
     window.ReactNativeWebView.postMessage(JSON.stringify({action:'accept',id:id}));
   };
 
-  // ── Remove a pin after acceptance ────────────────────────────────────────────
   window.removeOrderPin = function(id) {
     if(markers[id]){ map.removeLayer(markers[id]); delete markers[id]; }
   };
 
-  // ── Called by RN: GPS update ─────────────────────────────────────────────────
   window.updatePosition = function(lat,lng) {
     driverMarker.setLatLng([lat,lng]);
+    if(radiusCircle) radiusCircle.setLatLng([lat,lng]);
   };
 
   window.updateHeading = function(deg) {
     if(arrowEl) arrowEl.style.transform = 'rotate('+deg+'deg)';
   };
 
-  // ── Called by RN: reload all pins ───────────────────────────────────────────
   window.reloadOrders = function(json) {
     renderOrders(JSON.parse(json));
   };
@@ -179,24 +219,41 @@ export default function FindOrdersScreen() {
   const webRef  = useRef<WebView>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [coords, setCoords]   = useState<{ lat: number; lng: number } | null>(null);
-  const [orders, setOrders]   = useState<PendingOrder[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [coords, setCoords]       = useState<{ lat: number; lng: number } | null>(null);
+  const [allOrders, setAllOrders] = useState<PendingOrder[]>([]);
+  const [loading, setLoading]     = useState(true);
   const [accepting, setAccepting] = useState(false);
+  const [radiusKm, setRadiusKm]   = useState<number>(10);
 
-  // ── Fetch pending orders via RPC (works without JWT; verifies driver in PROFILE)
+  const getVisible = useCallback(
+    (orders: PendingOrder[], c: { lat: number; lng: number } | null, r: number) =>
+      c
+        ? orders.filter((o) => r >= 9999 || haversineKm(c.lat, c.lng, o.PICKUP_LAT, o.PICKUP_LNG) <= r)
+        : orders,
+    []
+  );
+
+  const visibleOrders = getVisible(allOrders, coords, radiusKm);
+
+  // When radius changes, update map pins + circle
+  useEffect(() => {
+    if (!coords) return;
+    const visible = getVisible(allOrders, coords, radiusKm);
+    webRef.current?.injectJavaScript(
+      `typeof reloadOrders!=='undefined'&&reloadOrders(${JSON.stringify(JSON.stringify(visible))});true`
+    );
+    webRef.current?.injectJavaScript(
+      `typeof updateRadius!=='undefined'&&updateRadius(${radiusKm});true`
+    );
+  }, [radiusKm, allOrders, coords]);
+
   const fetchOrders = useCallback(async () => {
     const driverId = user?.id ?? null;
     const { data } = await supabase.rpc('get_pending_orders', { p_driver_id: driverId });
     const list = (Array.isArray(data) ? data : []) as PendingOrder[];
-    setOrders(list);
-    // Inject into existing map if it's already mounted
-    webRef.current?.injectJavaScript(
-      `typeof reloadOrders!=='undefined'&&reloadOrders(${JSON.stringify(JSON.stringify(list))});true`
-    );
+    setAllOrders(list);
   }, [user?.id]);
 
-  // ── Init: get GPS + load orders ─────────────────────────────────────────────
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
@@ -234,7 +291,6 @@ export default function FindOrdersScreen() {
         }
       })();
 
-      // Poll every 30 s
       pollRef.current = setInterval(fetchOrders, 30_000);
 
       return () => {
@@ -245,7 +301,6 @@ export default function FindOrdersScreen() {
     }, [fetchOrders])
   );
 
-  // ── Handle accept message from WebView ─────────────────────────────────────
   const handleMessage = useCallback(async (event: { nativeEvent: { data: string } }) => {
     try {
       const msg = JSON.parse(event.nativeEvent.data) as { action: string; id: string };
@@ -253,28 +308,31 @@ export default function FindOrdersScreen() {
       if (accepting) return;
       setAccepting(true);
 
-      const { error } = await supabase
-        .from('PACKAGES')
-        .update({
-          STATUS:      'IN_PROGRESS',
-          DRIVER_ID:   user?.id,
-          ACCEPTED_AT: new Date().toISOString(),
-        })
-        .eq('ID', msg.id)
-        .is('DRIVER_ID', null);       // prevent double-accept
+      const { data: result, error } = await supabase
+        .rpc('accept_order', { p_package_id: msg.id });
 
       setAccepting(false);
 
-      if (error) {
-        Alert.alert('Could not accept', error.message);
+      if (error || !result?.ok) {
+        Alert.alert('Could not accept', error?.message ?? result?.error ?? 'Order already taken.');
         return;
       }
 
-      // Remove pin from map immediately
+      // Remove pin immediately
       webRef.current?.injectJavaScript(
         `typeof removeOrderPin!=='undefined'&&removeOrderPin('${msg.id}');true`
       );
-      setOrders((prev) => prev.filter((o) => o.ID !== msg.id));
+      setAllOrders((prev) => prev.filter((o) => o.ID !== msg.id));
+
+      // Notify sender (best-effort)
+      supabase.functions.invoke('send-notification', {
+        body: {
+          to_package_id: msg.id,
+          title: 'Order Accepted!',
+          body: 'A driver is heading to pick up your package.',
+        },
+      }).catch(() => {});
+
       Alert.alert('Order accepted!', 'Head to the pickup location. Check your Orders tab.');
     } catch { /* ignore parse errors */ }
   }, [accepting, user]);
@@ -282,7 +340,7 @@ export default function FindOrdersScreen() {
   if (loading || !coords) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#1B6B4A" />
+        <ActivityIndicator size="large" color={PRIMARY} />
         <Text style={styles.loadingText}>Loading map…</Text>
       </View>
     );
@@ -294,16 +352,33 @@ export default function FindOrdersScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Find Orders</Text>
         <View style={styles.headerRight}>
-          {accepting && <ActivityIndicator size="small" color="#1B6B4A" style={{ marginRight: 10 }} />}
+          {accepting && <ActivityIndicator size="small" color={PRIMARY} style={{ marginRight: 10 }} />}
           <TouchableOpacity onPress={fetchOrders} style={styles.refreshBtn} hitSlop={8}>
-            <Text style={styles.refreshText}>{orders.length} pending</Text>
+            <Text style={styles.refreshText}>{visibleOrders.length} pending</Text>
           </TouchableOpacity>
         </View>
       </View>
 
+      {/* Radius pills */}
+      <View style={styles.radiusRow}>
+        <Text style={styles.radiusLabel}>Radius:</Text>
+        {RADIUS_OPTIONS.map((r) => (
+          <TouchableOpacity
+            key={r}
+            style={[styles.radiusPill, radiusKm === r && styles.radiusPillActive]}
+            onPress={() => setRadiusKm(r)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.radiusPillText, radiusKm === r && styles.radiusPillTextActive]}>
+              {RADIUS_LABELS[r]}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <WebView
         ref={webRef}
-        source={{ html: buildMapHTML(TOMTOM_KEY, coords.lat, coords.lng, orders) }}
+        source={{ html: buildMapHTML(TOMTOM_KEY, coords.lat, coords.lng, visibleOrders, radiusKm) }}
         style={styles.map}
         originWhitelist={['*']}
         javaScriptEnabled
@@ -316,13 +391,21 @@ export default function FindOrdersScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe:         { flex: 1, backgroundColor: '#fff' },
-  center:       { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
-  loadingText:  { marginTop: 12, fontSize: 15, color: '#888' },
-  header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#E4EAE4', backgroundColor: '#fff' },
-  title:        { fontSize: 22, fontWeight: '700', color: '#1A1A1A' },
-  headerRight:  { flexDirection: 'row', alignItems: 'center' },
-  refreshBtn:   { backgroundColor: '#EEF2EE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  refreshText:  { fontSize: 13, color: '#1B6B4A', fontWeight: '600' },
-  map:          { flex: 1 },
+  safe:        { flex: 1, backgroundColor: '#fff' },
+  center:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
+  loadingText: { marginTop: 12, fontSize: 15, color: '#888' },
+  header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#E4EAE4', backgroundColor: '#fff' },
+  title:       { fontSize: 22, fontWeight: '700', color: '#1A1A1A' },
+  headerRight: { flexDirection: 'row', alignItems: 'center' },
+  refreshBtn:  { backgroundColor: '#EEF2EE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  refreshText: { fontSize: 13, color: PRIMARY, fontWeight: '600' },
+
+  radiusRow:           { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#FAFAFA', borderBottomWidth: 1, borderBottomColor: '#EFEFEF', gap: 6 },
+  radiusLabel:         { fontSize: 12, color: '#888', marginRight: 2 },
+  radiusPill:          { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, backgroundColor: '#F0F0F0', borderWidth: 1, borderColor: 'transparent' },
+  radiusPillActive:    { backgroundColor: PRIMARY + '18', borderColor: PRIMARY },
+  radiusPillText:      { fontSize: 12, color: '#666', fontWeight: '500' },
+  radiusPillTextActive:{ color: PRIMARY, fontWeight: '700' },
+
+  map: { flex: 1 },
 });

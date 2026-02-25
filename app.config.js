@@ -9,6 +9,14 @@ module.exports = {
       ...(base.expo.plugins || []),
       'expo-secure-store',
       [
+        'expo-notifications',
+        {
+          icon: './assets/images/icon.png',
+          color: '#1B6B4A',
+          sounds: [],
+        },
+      ],
+      [
         'expo-location',
         {
           locationAlwaysAndWhenInUsePermission: 'BrighteEats needs your location to show your position on the map and calculate delivery routes.',
