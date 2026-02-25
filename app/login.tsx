@@ -1,3 +1,4 @@
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -6,25 +7,24 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
+  Text,
   TextInput,
   TouchableOpacity,
+  View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useAuth } from '@/contexts/auth-context';
-import { useThemeColor } from '@/hooks/use-theme-color';
+
+const PRIMARY = '#1B6B4A';
+const PLACEHOLDER = '#A0A0A0';
 
 export default function LoginScreen() {
   const { signIn, setDebugBypass } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const backgroundColor = useThemeColor({}, 'background');
-  const tintColor = useThemeColor({}, 'tint');
-  const iconColor = useThemeColor({}, 'icon');
+  const insets = useSafeAreaInsets();
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
@@ -41,110 +41,105 @@ export default function LoginScreen() {
     router.replace('/(tabs)');
   };
 
-  const handleDebugSkip = () => {
-    setDebugBypass(true);
-    router.replace('/(tabs)');
-  };
-
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={[styles.container, { backgroundColor }]}>
-      <TouchableOpacity
-        style={styles.debugButton}
-        onPress={handleDebugSkip}
-        accessibilityLabel="Debug: skip login"
-        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-        <IconSymbol name="ladybug.fill" size={28} color={tintColor} />
-      </TouchableOpacity>
-      <ThemedView style={styles.inner}>
-        <ThemedText type="title" style={styles.title}>
-          Log in
-        </ThemedText>
+      style={styles.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      {/* Green header with logo */}
+      <View style={[styles.header, { paddingTop: insets.top + 28 }]}>
+        <TouchableOpacity
+          activeOpacity={1}
+          onLongPress={() => { setDebugBypass(true); router.replace('/(tabs)'); }}
+        >
+          <View style={styles.logoCircle}>
+            <MaterialIcons name="local-shipping" size={44} color="#fff" />
+          </View>
+        </TouchableOpacity>
+        <Text style={styles.brandName}>KARGADOOR</Text>
+        <Text style={styles.brandTagline}>Logistics made simple</Text>
+      </View>
 
-        <TextInput
-          style={[styles.input, { backgroundColor: iconColor + '20', color: iconColor }]}
-          placeholder="Email"
-          placeholderTextColor={iconColor}
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          autoComplete="email"
-          editable={!loading}
-        />
-        <TextInput
-          style={[styles.input, { backgroundColor: iconColor + '20', color: iconColor }]}
-          placeholder="Password"
-          placeholderTextColor={iconColor}
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          autoComplete="password"
-          editable={!loading}
-        />
+      {/* White card */}
+      <View style={[styles.card, { paddingBottom: Math.max(insets.bottom, 24) }]}>
+        <Text style={styles.cardTitle}>Login</Text>
+
+        <View style={styles.inputRow}>
+          <MaterialIcons name="email" size={20} color={PLACEHOLDER} style={styles.inputIcon} />
+          <TextInput
+            style={styles.textInput}
+            placeholder="Email"
+            placeholderTextColor={PLACEHOLDER}
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            autoComplete="email"
+            editable={!loading}
+          />
+        </View>
+
+        <View style={styles.inputRow}>
+          <MaterialIcons name="lock" size={20} color={PLACEHOLDER} style={styles.inputIcon} />
+          <TextInput
+            style={styles.textInput}
+            placeholder="Password"
+            placeholderTextColor={PLACEHOLDER}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoComplete="password"
+            editable={!loading}
+          />
+        </View>
+
+        <TouchableOpacity style={styles.forgotWrap}>
+          <Text style={styles.forgotText}>Forgot Password?</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.button, { backgroundColor: tintColor }]}
+          style={[styles.btn, loading && styles.btnDisabled]}
           onPress={handleLogin}
-          disabled={loading}>
+          disabled={loading}
+          activeOpacity={0.85}
+        >
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <ThemedText style={styles.buttonText}>Log in</ThemedText>
+            <Text style={styles.btnText}>Login</Text>
           )}
         </TouchableOpacity>
 
         <Link href="/register" asChild>
-          <TouchableOpacity style={styles.linkButton} disabled={loading}>
-            <ThemedText type="link">Don’t have an account? Sign up</ThemedText>
+          <TouchableOpacity style={styles.signupWrap} disabled={loading}>
+            <Text style={styles.signupText}>
+              Don't Have An Account?{' '}
+              <Text style={styles.signupLink}>Sign Up</Text>
+            </Text>
           </TouchableOpacity>
         </Link>
-      </ThemedView>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  debugButton: {
-    position: 'absolute',
-    top: 56,
-    right: 20,
-    zIndex: 10,
-  },
-  inner: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  title: {
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  input: {
-    height: 48,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    marginBottom: 16,
-    fontSize: 16,
-  },
-  button: {
-    height: 48,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  linkButton: {
-    marginTop: 20,
-    alignItems: 'center',
-  },
+  root:         { flex: 1, backgroundColor: PRIMARY },
+  header:       { alignItems: 'center', paddingHorizontal: 24, paddingBottom: 32 },
+  logoCircle:   { width: 84, height: 84, borderRadius: 42, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  brandName:    { fontSize: 26, fontWeight: '800', color: '#fff', letterSpacing: 3, marginBottom: 4 },
+  brandTagline: { fontSize: 13, color: 'rgba(255,255,255,0.65)' },
+  card:         { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, flex: 1, paddingHorizontal: 28, paddingTop: 32 },
+  cardTitle:    { fontSize: 28, fontWeight: '700', color: '#1A1A1A', marginBottom: 24 },
+  inputRow:     { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F4F6F4', borderRadius: 12, marginBottom: 14, paddingHorizontal: 14, height: 52 },
+  inputIcon:    { marginRight: 10 },
+  textInput:    { flex: 1, fontSize: 15, color: '#1A1A1A' },
+  forgotWrap:   { alignItems: 'flex-end', marginBottom: 24 },
+  forgotText:   { fontSize: 13, color: PRIMARY, fontWeight: '600' },
+  btn:          { backgroundColor: PRIMARY, borderRadius: 14, height: 52, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+  btnDisabled:  { opacity: 0.65 },
+  btnText:      { color: '#fff', fontSize: 16, fontWeight: '700' },
+  signupWrap:   { alignItems: 'center', marginTop: 4 },
+  signupText:   { fontSize: 14, color: '#666' },
+  signupLink:   { color: PRIMARY, fontWeight: '700' },
 });

@@ -10,7 +10,7 @@ type AuthContextType = {
   debugBypass: boolean;
   setDebugBypass: (value: boolean) => void;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, name: string, phone: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 };
 
@@ -44,8 +44,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error: error ?? null };
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
+  const signUp = useCallback(async (email: string, password: string, name: string, phone: string) => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: name, phone_number: phone } },
+    });
     return { error: error ?? null };
   }, []);
 
