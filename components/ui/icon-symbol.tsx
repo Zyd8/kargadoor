@@ -20,6 +20,13 @@ const MAPPING = {
   'chevron.right': 'chevron-right',
   'map.fill': 'map',
   'shippingbox.fill': 'inventory',
+  'location.fill': 'location-on',
+  'person.fill': 'person',
+  'plus': 'add',
+  'list.bullet': 'list',
+  'truck.box.truck.fill': 'local-shipping',
+  'bell.fill': 'notifications',
+  'logout': 'logout',
 } as IconMapping;
 
 /**
