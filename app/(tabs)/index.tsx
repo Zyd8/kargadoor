@@ -1,19 +1,18 @@
 import Constants from 'expo-constants';
 import * as Location from 'expo-location';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
+import WebView from 'react-native-webview';
 
 const TOMTOM_KEY = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
 
-// Manila, PH fallback
 const DEFAULT_LAT = 14.5995;
 const DEFAULT_LNG = 120.9842;
 
-// Tile URL: https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=KEY&tileSize=256
-// Search:   https://api.tomtom.com/search/2/search/{query}.json?key=KEY&lat=&lon=&radius=50000
-// Routing:  https://api.tomtom.com/routing/1/calculateRoute/{lat,lng}:{lat,lng}/json?key=KEY
+// Tile URL:   https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=KEY
+// Search:     https://api.tomtom.com/search/2/search/{q}.json?key=KEY&lat=&lon=
+// Routing:    https://api.tomtom.com/routing/1/calculateRoute/{lat,lng}:{lat,lng}/json?key=KEY
 function buildMapHTML(apiKey: string, lat: number, lng: number): string {
   return `<!DOCTYPE html>
 <html>
@@ -27,57 +26,40 @@ function buildMapHTML(apiKey: string, lat: number, lng: number): string {
     html, body { width: 100%; height: 100%; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
     #map { width: 100%; height: 100%; }
 
+    #recalc-banner {
+      display: none;
+      position: fixed; top: 12px; left: 50%;
+      transform: translateX(-50%);
+      background: #FF6B35; color: #fff;
+      padding: 8px 18px; border-radius: 20px;
+      font-size: 13px; font-weight: 600;
+      z-index: 2000; white-space: nowrap;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    }
     #panel {
-      position: fixed;
-      bottom: 24px;
-      left: 12px;
-      right: 12px;
-      background: #fff;
-      border-radius: 20px;
-      padding: 14px;
-      box-shadow: 0 4px 28px rgba(0,0,0,0.18);
-      z-index: 1000;
+      position: fixed; bottom: 24px; left: 12px; right: 12px;
+      background: #fff; border-radius: 20px; padding: 14px;
+      box-shadow: 0 4px 28px rgba(0,0,0,0.18); z-index: 1000;
     }
     #wrap { position: relative; }
     #dest {
-      width: 100%;
-      padding: 12px 14px;
-      border: 1.5px solid #E8E8E8;
-      border-radius: 12px;
-      font-size: 15px;
-      outline: none;
-      box-sizing: border-box;
-      background: #FAFAFA;
-      color: #222;
+      width: 100%; padding: 12px 14px;
+      border: 1.5px solid #E8E8E8; border-radius: 12px;
+      font-size: 15px; outline: none; box-sizing: border-box;
+      background: #FAFAFA; color: #222;
     }
     #dest:focus { border-color: #FF6B35; background: #fff; }
     #go {
-      margin-top: 10px;
-      width: 100%;
-      padding: 14px;
-      background: #FF6B35;
-      color: #fff;
-      border: none;
-      border-radius: 12px;
-      font-size: 15px;
-      font-weight: 700;
-      cursor: pointer;
+      margin-top: 10px; width: 100%; padding: 14px;
+      background: #FF6B35; color: #fff; border: none;
+      border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer;
     }
     #go:disabled { background: #D0D0D0; }
     #status { margin-top: 8px; font-size: 13px; color: #666; text-align: center; min-height: 18px; }
-
     #sugg {
-      display: none;
-      position: absolute;
-      bottom: calc(100% + 8px);
-      left: 0; right: 0;
-      background: #fff;
-      border-radius: 14px;
-      overflow: hidden;
-      box-shadow: 0 -4px 20px rgba(0,0,0,0.14);
-      max-height: 230px;
-      overflow-y: auto;
-      z-index: 2000;
+      display: none; position: absolute; bottom: calc(100% + 8px); left: 0; right: 0;
+      background: #fff; border-radius: 14px; overflow: hidden;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.14); max-height: 230px; overflow-y: auto; z-index: 2000;
     }
     .si { padding: 11px 14px; border-bottom: 1px solid #F4F4F4; cursor: pointer; }
     .si:last-child { border-bottom: none; }
@@ -88,6 +70,7 @@ function buildMapHTML(apiKey: string, lat: number, lng: number): string {
 </head>
 <body>
   <div id="map"></div>
+  <div id="recalc-banner">Recalculating route\u2026</div>
   <div id="panel">
     <div id="wrap">
       <input id="dest" type="text" placeholder="Search destination..." autocomplete="off" />
@@ -98,135 +81,176 @@ function buildMapHTML(apiKey: string, lat: number, lng: number): string {
   </div>
 
   <script>
-    const K = '${apiKey}';
-    const ULat = ${lat}, ULng = ${lng};
+    var K      = '${apiKey}';
+    var curLat = ${lat}, curLng = ${lng};
+    var routeLine = null, destMarker = null, destCoord = null;
+    var routePoints = [], lastRecalcTime = 0, timer = null;
+    var arrowEl = null;
 
-    // --- Map setup (Leaflet + TomTom raster tiles) ---
-    const map = L.map('map', { zoomControl: false }).setView([ULat, ULng], 15);
+    // ── Map ──────────────────────────────────────────────────────────────
+    var map = L.map('map', { zoomControl: false }).setView([curLat, curLng], 16);
 
-    // Try TomTom tiles; if they 403/404 (plan restriction) the OSM fallback below stays visible
-    var tomtomLayer = L.tileLayer(
-      'https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=' + K + '&tileSize=256',
-      { maxZoom: 22, attribution: '\\u00a9 TomTom', errorTileUrl: '' }
-    );
     var osmLayer = L.tileLayer(
       'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
       { maxZoom: 19, attribution: '\\u00a9 OpenStreetMap contributors' }
     );
-    // Add OSM as base, then TomTom on top so TomTom shows when available
+    var ttLayer = L.tileLayer(
+      'https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=' + K + '&tileSize=256',
+      { maxZoom: 22, attribution: '\\u00a9 TomTom', errorTileUrl: '' }
+    );
     osmLayer.addTo(map);
-    tomtomLayer.addTo(map);
-    tomtomLayer.on('tileerror', function() { map.removeLayer(tomtomLayer); });
+    ttLayer.addTo(map);
+    ttLayer.on('tileerror', function() { map.removeLayer(ttLayer); });
 
     L.control.zoom({ position: 'topright' }).addTo(map);
 
-    // User location marker
-    L.marker([ULat, ULng], {
-      icon: L.divIcon({
-        className: '',
-        html: '<div style="width:18px;height:18px;background:#FF6B35;border:3px solid #fff;border-radius:50%;box-shadow:0 2px 10px rgba(255,107,53,.5);"></div>',
-        iconSize: [18, 18],
-        iconAnchor: [9, 9],
-      })
+    // ── User arrow marker ────────────────────────────────────────────────
+    // SVG upward-pointing arrow; rotation applied via updateHeading()
+    var arrowHTML =
+      '<div id="user-arrow" style="width:36px;height:36px;transform:rotate(0deg);transition:transform 0.25s linear;">' +
+        '<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">' +
+          '<circle cx="18" cy="18" r="17" fill="#FF6B35" fill-opacity="0.2"/>' +
+          '<polygon points="18,4 28,30 18,24 8,30" fill="#FF6B35" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>' +
+        '</svg>' +
+      '</div>';
+
+    var userMarker = L.marker([curLat, curLng], {
+      icon: L.divIcon({ className: '', html: arrowHTML, iconSize: [36, 36], iconAnchor: [18, 18] }),
     }).addTo(map);
 
-    // --- State ---
-    let routeLine = null, destMarker = null, destCoord = null, timer = null;
+    // grab the element after Leaflet adds it to the DOM
+    map.whenReady(function() { arrowEl = document.getElementById('user-arrow'); });
 
-    const inp    = document.getElementById('dest');
-    const sugg   = document.getElementById('sugg');
-    const status = document.getElementById('status');
-    const go     = document.getElementById('go');
+    // ── Called by RN: GPS position update ────────────────────────────────
+    window.updatePosition = function(lat, lng) {
+      curLat = lat; curLng = lng;
+      userMarker.setLatLng([lat, lng]);
 
-    // --- Search ---
-    inp.addEventListener('input', () => {
-      clearTimeout(timer);
-      destCoord = null;
-      const q = inp.value.trim();
+      // Off-route check — reroute if > 50 m away, at most once per 30 s
+      if (destCoord && routePoints.length > 0) {
+        var now = Date.now();
+        if (now - lastRecalcTime > 30000 && minDistToRoute(lat, lng) > 50) {
+          lastRecalcTime = now;
+          recalcRoute();
+        }
+      }
+    };
+
+    // ── Called by RN: compass heading update ─────────────────────────────
+    window.updateHeading = function(deg) {
+      if (arrowEl) arrowEl.style.transform = 'rotate(' + deg + 'deg)';
+      // Smoothly re-centre map on user as they move
+      map.setView([curLat, curLng], map.getZoom(), { animate: true, duration: 0.4, noMoveStart: true });
+    };
+
+    // ── Distance helpers ─────────────────────────────────────────────────
+    function haverDist(la1, lo1, la2, lo2) {
+      var R = 6371000;
+      var dLa = (la2 - la1) * Math.PI / 180;
+      var dLo = (lo2 - lo1) * Math.PI / 180;
+      var a = Math.sin(dLa/2)*Math.sin(dLa/2) +
+              Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dLo/2)*Math.sin(dLo/2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function minDistToRoute(lat, lng) {
+      var min = Infinity;
+      for (var i = 0; i < routePoints.length; i++) {
+        var d = haverDist(lat, lng, routePoints[i][0], routePoints[i][1]);
+        if (d < min) min = d;
+      }
+      return min;
+    }
+
+    // ── Route calculation ────────────────────────────────────────────────
+    async function calcRoute(fromLat, fromLng) {
+      var url = 'https://api.tomtom.com/routing/1/calculateRoute/' +
+        fromLat + ',' + fromLng + ':' + destCoord.lat + ',' + destCoord.lng +
+        '/json?key=' + K + '&routeType=fastest&travelMode=car';
+      var data  = await (await fetch(url)).json();
+      var route = data.routes && data.routes[0];
+      if (!route) throw new Error('no route');
+
+      var pts = route.legs[0].points.map(function(p) { return [p.latitude, p.longitude]; });
+      routePoints = pts;
+
+      if (routeLine)  { map.removeLayer(routeLine);  routeLine  = null; }
+      if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
+
+      routeLine = L.polyline(pts, { color: '#FF6B35', weight: 5, opacity: 0.9 }).addTo(map);
+      destMarker = L.marker([destCoord.lat, destCoord.lng], {
+        icon: L.divIcon({
+          className: '',
+          html: '<div style="width:14px;height:14px;background:#FF6B35;border:2px solid #fff;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,.3);"></div>',
+          iconSize: [14, 14], iconAnchor: [7, 7],
+        }),
+      }).addTo(map);
+
+      var s = route.summary;
+      document.getElementById('status').textContent =
+        Math.round(s.travelTimeInSeconds / 60) + ' min \u00b7 ' + (s.lengthInMeters / 1000).toFixed(1) + ' km';
+
+      return pts;
+    }
+
+    async function recalcRoute() {
+      var banner = document.getElementById('recalc-banner');
+      banner.style.display = 'block';
+      try { await calcRoute(curLat, curLng); }
+      catch(e) { /* keep old route if recalc fails */ }
+      finally { banner.style.display = 'none'; }
+    }
+
+    // ── Search ───────────────────────────────────────────────────────────
+    var inp    = document.getElementById('dest');
+    var sugg   = document.getElementById('sugg');
+    var status = document.getElementById('status');
+    var go     = document.getElementById('go');
+
+    inp.addEventListener('input', function() {
+      clearTimeout(timer); destCoord = null;
+      var q = inp.value.trim();
       if (q.length < 3) { hideSugg(); return; }
-      timer = setTimeout(() => doSearch(q), 420);
+      timer = setTimeout(function() { doSearch(q); }, 420);
     });
 
     async function doSearch(q) {
       try {
-        const url = 'https://api.tomtom.com/search/2/search/'
-          + encodeURIComponent(q)
-          + '.json?key=' + K
-          + '&lat=' + ULat + '&lon=' + ULng
-          + '&radius=50000&limit=5&typeahead=true';
-        const res = await fetch(url);
-        const data = await res.json();
-        const items = data.results || [];
+        var url = 'https://api.tomtom.com/search/2/search/' + encodeURIComponent(q) +
+          '.json?key=' + K + '&lat=' + curLat + '&lon=' + curLng + '&radius=50000&limit=5&typeahead=true';
+        var items = (await (await fetch(url)).json()).results || [];
         if (!items.length) { hideSugg(); return; }
-
-        sugg.innerHTML = items.map((x, i) =>
-          '<div class="si" data-i="' + i + '">' +
-            '<div class="sn">' + (x.poi && x.poi.name ? x.poi.name : (x.address && x.address.freeformAddress ? x.address.freeformAddress : 'Place')) + '</div>' +
-            '<div class="sa">' + (x.address && x.address.freeformAddress ? x.address.freeformAddress : '') + '</div>' +
-          '</div>'
-        ).join('');
+        sugg.innerHTML = items.map(function(x, i) {
+          var name = x.poi && x.poi.name ? x.poi.name : (x.address && x.address.freeformAddress ? x.address.freeformAddress : 'Place');
+          var addr = x.address && x.address.freeformAddress ? x.address.freeformAddress : '';
+          return '<div class="si" data-i="' + i + '"><div class="sn">' + name + '</div><div class="sa">' + addr + '</div></div>';
+        }).join('');
         sugg.style.display = 'block';
-
         sugg.querySelectorAll('.si').forEach(function(el) {
           el.addEventListener('click', function() {
             var x = items[+el.getAttribute('data-i')];
-            inp.value = (x.poi && x.poi.name) ? x.poi.name : (x.address && x.address.freeformAddress ? x.address.freeformAddress : '');
-            destCoord = { lat: x.position.lat, lng: x.position.lon };
-            hideSugg();
-            status.textContent = '';
+            inp.value  = x.poi && x.poi.name ? x.poi.name : (x.address && x.address.freeformAddress ? x.address.freeformAddress : '');
+            destCoord  = { lat: x.position.lat, lng: x.position.lon };
+            hideSugg(); status.textContent = '';
           });
         });
       } catch(e) { hideSugg(); }
     }
 
     function hideSugg() { sugg.style.display = 'none'; sugg.innerHTML = ''; }
-    document.addEventListener('click', function(e) {
-      if (!e.target.closest('#panel')) hideSugg();
-    });
+    document.addEventListener('click', function(e) { if (!e.target.closest('#panel')) hideSugg(); });
 
-    // --- Routing ---
+    // ── Get Route button ─────────────────────────────────────────────────
     go.addEventListener('click', async function() {
       if (!destCoord) { status.textContent = 'Please pick a destination from the list.'; return; }
       status.textContent = 'Calculating\u2026';
       go.disabled = true;
       try {
-        const url = 'https://api.tomtom.com/routing/1/calculateRoute/'
-          + ULat + ',' + ULng + ':'
-          + destCoord.lat + ',' + destCoord.lng
-          + '/json?key=' + K + '&routeType=fastest&travelMode=car';
-        const res = await fetch(url);
-        const data = await res.json();
-        const route = data.routes && data.routes[0];
-        if (!route) throw new Error('No route');
-
-        // points uses latitude/longitude (not lat/lng)
-        var pts = route.legs[0].points.map(function(p) { return [p.latitude, p.longitude]; });
-
-        if (routeLine)  { map.removeLayer(routeLine);  routeLine  = null; }
-        if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
-
-        routeLine = L.polyline(pts, { color: '#FF6B35', weight: 5, opacity: 0.9 }).addTo(map);
-
-        destMarker = L.marker([destCoord.lat, destCoord.lng], {
-          icon: L.divIcon({
-            className: '',
-            html: '<div style="width:14px;height:14px;background:#FF6B35;border:2px solid #fff;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,.3);"></div>',
-            iconSize: [14, 14],
-            iconAnchor: [7, 7],
-          })
-        }).addTo(map);
-
-        map.fitBounds(routeLine.getBounds(), { padding: [60, 60] });
-
-        var s = route.summary;
-        var mins = Math.round(s.travelTimeInSeconds / 60);
-        var km   = (s.lengthInMeters / 1000).toFixed(1);
-        status.textContent = mins + ' min \u00b7 ' + km + ' km';
+        var pts = await calcRoute(curLat, curLng);
+        map.fitBounds(L.polyline(pts).getBounds(), { padding: [60, 60] });
       } catch(e) {
         status.textContent = 'Could not calculate route. Try again.';
-      } finally {
-        go.disabled = false;
-      }
+      } finally { go.disabled = false; }
     });
   </script>
 </body>
@@ -234,22 +258,50 @@ function buildMapHTML(apiKey: string, lat: number, lng: number): string {
 }
 
 export default function MapScreen() {
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [permissionError, setPermissionError] = useState(false);
+  const [coords, setCoords]           = useState<{ lat: number; lng: number } | null>(null);
+  const [permissionError, setPermErr] = useState(false);
+  const webViewRef = useRef<WebView>(null);
 
   useEffect(() => {
+    let posSub:     Location.LocationSubscription | null = null;
+    let headingSub: Location.LocationSubscription | null = null;
+
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         setCoords({ lat: DEFAULT_LAT, lng: DEFAULT_LNG });
-        setPermissionError(true);
+        setPermErr(true);
         return;
       }
-      const pos = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
+
+      // One-shot initial fix to show the map immediately
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+
+      // Continuous GPS → moves the dot, triggers off-route checks
+      posSub = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 2000, distanceInterval: 5 },
+        (loc) => {
+          const { latitude, longitude } = loc.coords;
+          webViewRef.current?.injectJavaScript(
+            'typeof updatePosition!=="undefined"&&updatePosition(' + latitude + ',' + longitude + ');true'
+          );
+        }
+      );
+
+      // Compass heading → rotates the navigation arrow in real-time
+      headingSub = await Location.watchHeadingAsync((h) => {
+        const deg = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
+        webViewRef.current?.injectJavaScript(
+          'typeof updateHeading!=="undefined"&&updateHeading(' + deg + ');true'
+        );
+      });
     })();
+
+    return () => {
+      posSub?.remove();
+      headingSub?.remove();
+    };
   }, []);
 
   if (!coords) {
@@ -269,6 +321,7 @@ export default function MapScreen() {
         </View>
       )}
       <WebView
+        ref={webViewRef}
         source={{ html: buildMapHTML(TOMTOM_KEY, coords.lat, coords.lng) }}
         style={styles.webview}
         originWhitelist={['*']}
@@ -281,10 +334,10 @@ export default function MapScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  webview: { flex: 1 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
+  container:   { flex: 1, backgroundColor: '#000' },
+  webview:     { flex: 1 },
+  center:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
   loadingText: { marginTop: 12, fontSize: 15, color: '#888' },
-  banner: { backgroundColor: '#FFF3CD', paddingVertical: 8, paddingHorizontal: 16 },
-  bannerText: { color: '#856404', fontSize: 13 },
+  banner:      { backgroundColor: '#FFF3CD', paddingVertical: 8, paddingHorizontal: 16 },
+  bannerText:  { color: '#856404', fontSize: 13 },
 });
