@@ -49,8 +49,8 @@ function buildMapHTML(apiKey: string, lat: number, lng: number): string {
     var curLat = ${lat}, curLng = ${lng};
     var arrowEl = null;
 
-    // ── Map ──────────────────────────────────────────────────────────────
-    var map = L.map('map', { zoomControl: false }).setView([curLat, curLng], 16);
+    // ── Map (no attribution watermark) ───────────────────────────────────
+    var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([curLat, curLng], 16);
 
     var osmLayer = L.tileLayer(
       'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',

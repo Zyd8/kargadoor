@@ -6,6 +6,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -42,11 +43,8 @@ export default function LoginScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      {/* Green header with logo */}
+    <View style={styles.root}>
+      {/* Green header — stays fixed when keyboard opens */}
       <View style={[styles.header, { paddingTop: insets.top + 28 }]}>
         <TouchableOpacity
           activeOpacity={1}
@@ -60,66 +58,86 @@ export default function LoginScreen() {
         <Text style={styles.brandTagline}>Logistics made simple</Text>
       </View>
 
-      {/* White card */}
-      <View style={[styles.card, { paddingBottom: Math.max(insets.bottom, 24) }]}>
-        <Text style={styles.cardTitle}>Login</Text>
-
-        <View style={styles.inputRow}>
-          <MaterialIcons name="email" size={20} color={PLACEHOLDER} style={styles.inputIcon} />
-          <TextInput
-            style={styles.textInput}
-            placeholder="Email"
-            placeholderTextColor={PLACEHOLDER}
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            autoComplete="email"
-            editable={!loading}
-          />
-        </View>
-
-        <View style={styles.inputRow}>
-          <MaterialIcons name="lock" size={20} color={PLACEHOLDER} style={styles.inputIcon} />
-          <TextInput
-            style={styles.textInput}
-            placeholder="Password"
-            placeholderTextColor={PLACEHOLDER}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoComplete="password"
-            editable={!loading}
-          />
-        </View>
-
-        <TouchableOpacity style={styles.forgotWrap}>
-          <Text style={styles.forgotText}>Forgot Password?</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.btn, loading && styles.btnDisabled]}
-          onPress={handleLogin}
-          disabled={loading}
-          activeOpacity={0.85}
+      {/* KAV wraps only the white card so header stays put */}
+      <KeyboardAvoidingView
+        style={styles.kav}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          style={styles.card}
+          contentContainerStyle={[styles.cardInner, { paddingBottom: Math.max(insets.bottom, 24) }]}
+          keyboardShouldPersistTaps="handled"
+          bounces={false}
+          showsVerticalScrollIndicator={false}
         >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.btnText}>Login</Text>
-          )}
-        </TouchableOpacity>
+          <Text style={styles.cardTitle}>Login</Text>
 
-        <Link href="/register" asChild>
-          <TouchableOpacity style={styles.signupWrap} disabled={loading}>
-            <Text style={styles.signupText}>
-              Don't Have An Account?{' '}
-              <Text style={styles.signupLink}>Sign Up</Text>
-            </Text>
+          <View style={styles.inputRow}>
+            <MaterialIcons name="email" size={20} color={PLACEHOLDER} style={styles.inputIcon} />
+            <TextInput
+              style={styles.textInput}
+              placeholder="Email"
+              placeholderTextColor={PLACEHOLDER}
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoComplete="email"
+              editable={!loading}
+            />
+          </View>
+
+          <View style={styles.inputRow}>
+            <MaterialIcons name="lock" size={20} color={PLACEHOLDER} style={styles.inputIcon} />
+            <TextInput
+              style={styles.textInput}
+              placeholder="Password"
+              placeholderTextColor={PLACEHOLDER}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoComplete="password"
+              editable={!loading}
+            />
+          </View>
+
+          <TouchableOpacity style={styles.forgotWrap}>
+            <Text style={styles.forgotText}>Forgot Password?</Text>
           </TouchableOpacity>
-        </Link>
-      </View>
-    </KeyboardAvoidingView>
+
+<TouchableOpacity
+            style={[styles.btn, loading && styles.btnDisabled]}
+            onPress={handleLogin}
+            disabled={loading}
+            activeOpacity={0.85}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.btnText}>Login</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.bypassWrap}
+            onPress={() => { setDebugBypass(true); router.replace('/(tabs)'); }}
+            disabled={loading}
+          >
+            <Text style={styles.bypassText}>Use without account</Text>
+            <Text style={styles.bypassHint}>Skip login (e.g. when email rate exceeded)</Text>
+          </TouchableOpacity>
+
+          <Link href="/register" asChild>
+            <TouchableOpacity style={styles.signupWrap} disabled={loading}>
+              <Text style={styles.signupText}>
+                Don't Have An Account?{' '}
+                <Text style={styles.signupLink}>Sign Up</Text>
+              </Text>
+            </TouchableOpacity>
+          </Link>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -129,7 +147,9 @@ const styles = StyleSheet.create({
   logoCircle:   { width: 84, height: 84, borderRadius: 42, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
   brandName:    { fontSize: 26, fontWeight: '800', color: '#fff', letterSpacing: 3, marginBottom: 4 },
   brandTagline: { fontSize: 13, color: 'rgba(255,255,255,0.65)' },
-  card:         { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, flex: 1, paddingHorizontal: 28, paddingTop: 32 },
+  kav:          { flex: 1 },
+  card:         { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32 },
+  cardInner:    { flexGrow: 1, paddingHorizontal: 28, paddingTop: 32 },
   cardTitle:    { fontSize: 28, fontWeight: '700', color: '#1A1A1A', marginBottom: 24 },
   inputRow:     { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F4F6F4', borderRadius: 12, marginBottom: 14, paddingHorizontal: 14, height: 52 },
   inputIcon:    { marginRight: 10 },
@@ -139,6 +159,9 @@ const styles = StyleSheet.create({
   btn:          { backgroundColor: PRIMARY, borderRadius: 14, height: 52, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
   btnDisabled:  { opacity: 0.65 },
   btnText:      { color: '#fff', fontSize: 16, fontWeight: '700' },
+  bypassWrap:   { alignItems: 'center', marginTop: 16, marginBottom: 8, paddingVertical: 12 },
+  bypassText:   { fontSize: 14, color: PRIMARY, fontWeight: '600' },
+  bypassHint:   { fontSize: 11, color: '#888', marginTop: 2 },
   signupWrap:   { alignItems: 'center', marginTop: 4 },
   signupText:   { fontSize: 14, color: '#666' },
   signupLink:   { color: PRIMARY, fontWeight: '700' },
