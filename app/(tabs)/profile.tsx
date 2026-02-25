@@ -8,7 +8,7 @@ import { useAuth } from '@/contexts/auth-context';
 const PRIMARY = '#1B6B4A';
 
 export default function ProfileScreen() {
-  const { user, signOut, debugBypass, setDebugBypass } = useAuth();
+  const { user, signOut, debugBypass, setDebugBypass, userRole } = useAuth();
 
   const handleUseWithAccount = () => {
     setDebugBypass(false);
@@ -23,11 +23,17 @@ export default function ProfileScreen() {
 
       <View style={styles.avatarRow}>
         <View style={styles.avatar}>
-          <MaterialIcons name="person" size={44} color="#fff" />
+          <MaterialIcons name={userRole === 'DRIVER' ? 'local-shipping' : 'person'} size={44} color="#fff" />
         </View>
         <Text style={styles.email}>
-          {debugBypass ? 'Using without account' : (user?.email ?? 'Driver')}
+          {debugBypass ? 'Using without account' : (user?.email ?? '—')}
         </Text>
+        {!debugBypass && (
+          <View style={styles.roleBadge}>
+            <MaterialIcons name={userRole === 'DRIVER' ? 'local-shipping' : 'person'} size={14} color={PRIMARY} />
+            <Text style={styles.roleText}>{userRole === 'DRIVER' ? 'Driver' : 'User'}</Text>
+          </View>
+        )}
         {debugBypass && (
           <Text style={styles.bypassBadge}>Email / sign up skipped</Text>
         )}
@@ -59,6 +65,8 @@ const styles = StyleSheet.create({
   avatarRow:   { alignItems: 'center', marginTop: 40, marginBottom: 32 },
   avatar:      { width: 88, height: 88, borderRadius: 44, backgroundColor: PRIMARY, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
   email:       { fontSize: 16, color: '#444', fontWeight: '500' },
+  roleBadge:   { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#E8F5E9', borderRadius: 20, borderWidth: 1, borderColor: PRIMARY },
+  roleText:     { fontSize: 13, color: PRIMARY, fontWeight: '700' },
   bypassBadge: { fontSize: 12, color: '#888', marginTop: 4 },
   useWithAccountBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 20, marginBottom: 12, padding: 16, backgroundColor: '#E8F5E9', borderRadius: 14, justifyContent: 'center', borderWidth: 1, borderColor: PRIMARY },
   useWithAccountText: { color: PRIMARY, fontSize: 15, fontWeight: '700' },

@@ -21,7 +21,7 @@ const PRIMARY = '#1B6B4A';
 const PLACEHOLDER = '#A0A0A0';
 
 export default function LoginScreen() {
-  const { signIn, setDebugBypass } = useAuth();
+  const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -46,14 +46,9 @@ export default function LoginScreen() {
     <View style={styles.root}>
       {/* Green header — stays fixed when keyboard opens */}
       <View style={[styles.header, { paddingTop: insets.top + 28 }]}>
-        <TouchableOpacity
-          activeOpacity={1}
-          onLongPress={() => { setDebugBypass(true); router.replace('/(tabs)'); }}
-        >
-          <View style={styles.logoCircle}>
+        <View style={styles.logoCircle}>
             <MaterialIcons name="local-shipping" size={44} color="#fff" />
-          </View>
-        </TouchableOpacity>
+        </View>
         <Text style={styles.brandName}>KARGADOOR</Text>
         <Text style={styles.brandTagline}>Logistics made simple</Text>
       </View>
@@ -118,15 +113,6 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.bypassWrap}
-            onPress={() => { setDebugBypass(true); router.replace('/(tabs)'); }}
-            disabled={loading}
-          >
-            <Text style={styles.bypassText}>Use without account</Text>
-            <Text style={styles.bypassHint}>Skip login (e.g. when email rate exceeded)</Text>
-          </TouchableOpacity>
-
           <Link href="/register" asChild>
             <TouchableOpacity style={styles.signupWrap} disabled={loading}>
               <Text style={styles.signupText}>
@@ -159,9 +145,6 @@ const styles = StyleSheet.create({
   btn:          { backgroundColor: PRIMARY, borderRadius: 14, height: 52, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
   btnDisabled:  { opacity: 0.65 },
   btnText:      { color: '#fff', fontSize: 16, fontWeight: '700' },
-  bypassWrap:   { alignItems: 'center', marginTop: 16, marginBottom: 8, paddingVertical: 12 },
-  bypassText:   { fontSize: 14, color: PRIMARY, fontWeight: '600' },
-  bypassHint:   { fontSize: 11, color: '#888', marginTop: 2 },
   signupWrap:   { alignItems: 'center', marginTop: 4 },
   signupText:   { fontSize: 14, color: '#666' },
   signupLink:   { color: PRIMARY, fontWeight: '700' },

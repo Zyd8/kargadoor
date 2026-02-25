@@ -21,12 +21,13 @@ const PRIMARY = '#1B6B4A';
 const PLACEHOLDER = '#A0A0A0';
 
 export default function RegisterScreen() {
-  const { signUp, setDebugBypass } = useAuth();
+  const { signUp } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [phone, setPhone] = useState('');
+  const [role, setRole] = useState<'USER' | 'DRIVER'>('USER');
   const [loading, setLoading] = useState(false);
   const insets = useSafeAreaInsets();
 
@@ -44,7 +45,7 @@ export default function RegisterScreen() {
       return;
     }
     setLoading(true);
-    const { error } = await signUp(email.trim(), password, name.trim(), phone.trim());
+    const { error } = await signUp(email.trim(), password, name.trim(), phone.trim(), role);
     setLoading(false);
     if (error) {
       Alert.alert('Sign up failed', error.message);
@@ -153,6 +154,33 @@ export default function RegisterScreen() {
             />
           </View>
 
+          {/* Account Type toggle */}
+          <Text style={styles.roleLabel}>Account Type</Text>
+          <View style={styles.roleRow}>
+            {(['USER', 'DRIVER'] as const).map((r) => (
+              <TouchableOpacity
+                key={r}
+                style={[styles.rolePill, role === r && styles.rolePillSelected]}
+                onPress={() => setRole(r)}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons
+                  name={r === 'USER' ? 'person' : 'local-shipping'}
+                  size={16}
+                  color={role === r ? '#fff' : '#555'}
+                  style={{ marginRight: 5 }}
+                />
+                <Text style={[styles.rolePillText, role === r && styles.rolePillTextSelected]}>
+                  {r === 'USER' ? 'User' : 'Driver'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={styles.roleHint}>
+            {role === 'DRIVER' ? 'You will be able to accept and deliver orders.' : 'You will be able to create delivery orders.'}
+          </Text>
+
           <TouchableOpacity
             style={[styles.btn, loading && styles.btnDisabled]}
             onPress={handleRegister}
@@ -164,15 +192,6 @@ export default function RegisterScreen() {
             ) : (
               <Text style={styles.btnText}>Sign Up</Text>
             )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.bypassWrap}
-            onPress={() => { setDebugBypass(true); router.replace('/(tabs)'); }}
-            disabled={loading}
-          >
-            <Text style={styles.bypassText}>Use without account</Text>
-            <Text style={styles.bypassHint}>Skip sign up (e.g. when email rate exceeded)</Text>
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -194,10 +213,14 @@ const styles = StyleSheet.create({
   inputRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F4F6F4', borderRadius: 12, marginBottom: 14, paddingHorizontal: 14, height: 52 },
   inputIcon:  { marginRight: 10 },
   textInput:  { flex: 1, fontSize: 15, color: '#1A1A1A' },
+  roleLabel:           { fontSize: 12, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10, marginTop: 6 },
+  roleRow:             { flexDirection: 'row', gap: 10, marginBottom: 8 },
+  rolePill:            { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 11, borderRadius: 12, borderWidth: 1.5, borderColor: '#E4EAE4', backgroundColor: '#F4F6F4' },
+  rolePillSelected:    { backgroundColor: PRIMARY, borderColor: PRIMARY },
+  rolePillText:        { fontSize: 14, fontWeight: '600', color: '#555' },
+  rolePillTextSelected:{ color: '#fff' },
+  roleHint:            { fontSize: 12, color: '#AAA', marginBottom: 18, marginLeft: 2 },
   btn:        { backgroundColor: PRIMARY, borderRadius: 14, height: 52, alignItems: 'center', justifyContent: 'center', marginTop: 8, marginBottom: 28 },
   btnDisabled:{ opacity: 0.65 },
-  bypassWrap:   { alignItems: 'center', marginBottom: 16, paddingVertical: 12 },
-  bypassText:   { fontSize: 14, color: PRIMARY, fontWeight: '600' },
-  bypassHint:   { fontSize: 11, color: '#888', marginTop: 2 },
   btnText:    { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

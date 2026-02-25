@@ -78,22 +78,31 @@ function OrderCard({ item }: { item: Package }) {
 }
 
 export default function OrdersScreen() {
-  const { user } = useAuth();
+  const { user, userRole } = useAuth();
+  const isDriver = userRole === 'DRIVER';
   const [orders, setOrders] = useState<Package[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchOrders = useCallback(async () => {
     if (!user) { setLoading(false); return; }
-    const { data } = await supabase
+    let query = supabase
       .from('PACKAGES')
-      .select('ID, PICKUP_ADDRESS, RECIPIENT_ADDRESS, RECIPIENT_NAME, VEHICLE_TYPE, STATUS, CREATED_AT')
-      .eq('SENDER_ID', user.id)
-      .order('CREATED_AT', { ascending: false });
+      .select('ID, PICKUP_ADDRESS, RECIPIENT_ADDRESS, RECIPIENT_NAME, VEHICLE_TYPE, STATUS, CREATED_AT');
+
+    if (isDriver) {
+      // Driver sees orders they've accepted
+      query = query.eq('DRIVER_ID', user.id);
+    } else {
+      // User sees orders they've placed
+      query = query.eq('SENDER_ID', user.id);
+    }
+
+    const { data } = await query.order('CREATED_AT', { ascending: false });
     setOrders((data as Package[]) ?? []);
     setLoading(false);
     setRefreshing(false);
-  }, [user]);
+  }, [user, isDriver]);
 
   useFocusEffect(
     useCallback(() => {
@@ -110,7 +119,7 @@ export default function OrdersScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Orders</Text>
+        <Text style={styles.title}>{isDriver ? 'My Deliveries' : 'Orders'}</Text>
       </View>
 
       {loading ? (
@@ -129,9 +138,13 @@ export default function OrdersScreen() {
           ListEmptyComponent={
             <View style={styles.empty}>
               <MaterialIcons name="local-shipping" size={52} color="#C8D8D0" />
-              <Text style={styles.emptyTitle}>No orders yet</Text>
+              <Text style={styles.emptyTitle}>
+                {isDriver ? 'No deliveries yet' : 'No orders yet'}
+              </Text>
               <Text style={styles.emptySubtitle}>
-                Tap the + button to create your first delivery.
+                {isDriver
+                  ? 'Accept orders from the Find Orders map.'
+                  : 'Tap the + button to create your first delivery.'}
               </Text>
             </View>
           }

@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/contexts/auth-context';
 
-const PRIMARY = '#1B6B4A';
+const PRIMARY  = '#1B6B4A';
 const INACTIVE = '#9E9E9E';
 
 type TabIconProps = { name: React.ComponentProps<typeof MaterialIcons>['name']; color: string };
@@ -15,20 +15,22 @@ function TabIcon({ name, color }: TabIconProps) {
   return <MaterialIcons name={name} size={24} color={color} />;
 }
 
-function AddButton(props: { onPress?: (e: any) => void; style?: any }) {
-  const { onPress, style } = props;
+// Center FAB — USER gets a + button, DRIVER gets a truck/search button
+function CenterButton(props: { onPress?: (e: any) => void; style?: any; isDriver: boolean }) {
+  const { onPress, style, isDriver } = props;
   return (
     <View style={[styles.addBtnWrap, style]} pointerEvents="box-none">
       <TouchableOpacity style={styles.addBtn} onPress={onPress} activeOpacity={0.85}>
-        <MaterialIcons name="add" size={30} color="#fff" />
+        <MaterialIcons name={isDriver ? 'search' : 'add'} size={30} color="#fff" />
       </TouchableOpacity>
     </View>
   );
 }
 
 export default function TabLayout() {
-  const { user, loading, debugBypass } = useAuth();
+  const { user, loading, debugBypass, userRole } = useAuth();
   const isAuthenticated = !!user || debugBypass;
+  const isDriver = (userRole ?? 'USER').toUpperCase() === 'DRIVER';
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
@@ -64,22 +66,48 @@ export default function TabLayout() {
         name="orders"
         options={{
           title: 'Orders',
-          tabBarIcon: ({ color }) => <TabIcon name="local-shipping" color={color} />,
+          tabBarIcon: ({ color }) => <TabIcon name="receipt-long" color={color} />,
         }}
       />
+
+      {/* USER: "add" order form | DRIVER: "find-orders" map — cannot use href and tabBarButton together */}
       <Tabs.Screen
         name="add"
-        options={{
-          title: '',
-          tabBarIcon: () => null,
-          tabBarButton: (props) => (
-            <AddButton
-              onPress={props.onPress ?? undefined}
-              style={props.style}
-            />
-          ),
-        }}
+        options={
+          isDriver
+            ? { title: '', tabBarIcon: () => null, href: null }
+            : {
+                title: '',
+                tabBarIcon: () => null,
+                tabBarButton: (props) => (
+                  <CenterButton
+                    onPress={props.onPress ?? undefined}
+                    style={props.style}
+                    isDriver={false}
+                  />
+                ),
+              }
+        }
       />
+      <Tabs.Screen
+        name="find-orders"
+        options={
+          isDriver
+            ? {
+                title: '',
+                tabBarIcon: () => null,
+                tabBarButton: (props) => (
+                  <CenterButton
+                    onPress={props.onPress ?? undefined}
+                    style={props.style}
+                    isDriver
+                  />
+                ),
+              }
+            : { title: '', tabBarIcon: () => null, href: null }
+        }
+      />
+
       <Tabs.Screen
         name="tracking"
         options={{

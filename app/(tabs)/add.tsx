@@ -15,8 +15,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import LocationPicker, { LocationValue } from '@/components/location-picker';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
+
 
 const PRIMARY = '#1B6B4A';
 const PLACEHOLDER = '#A0A0A0';
@@ -27,9 +29,11 @@ const BG = '#EEF2EE';
 type VehicleType = 'motorcycle' | 'car' | 'truck';
 type PaymentMethod = 'cash' | 'gcash';
 
+const EMPTY_LOC: LocationValue = { address: '', lat: null, lng: null };
+
 interface OrderForm {
-  pickupAddress: string;
-  dropoffAddress: string;
+  pickup: LocationValue;
+  dropoff: LocationValue;
   vehicleType: VehicleType | '';
   recipientName: string;
   contactNumber: string;
@@ -118,16 +122,18 @@ export default function AddScreen() {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
 
-  const [form, setForm] = useState<OrderForm>({
-    pickupAddress: '',
-    dropoffAddress: '',
-    vehicleType: '',
+  const blankForm = (): OrderForm => ({
+    pickup:        EMPTY_LOC,
+    dropoff:       EMPTY_LOC,
+    vehicleType:   '',
     recipientName: '',
     contactNumber: (user?.user_metadata?.phone_number as string) ?? '',
     paymentMethod: 'cash',
-    itemType: '',
-    notes: '',
+    itemType:      '',
+    notes:         '',
   });
+
+  const [form, setForm] = useState<OrderForm>(blankForm);
 
   const set = <K extends keyof OrderForm>(key: K, val: OrderForm[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }));
@@ -138,8 +144,8 @@ export default function AddScreen() {
   };
 
   const step1Valid =
-    form.pickupAddress.trim().length > 2 &&
-    form.dropoffAddress.trim().length > 2 &&
+    form.pickup.address.trim().length > 2 &&
+    form.dropoff.address.trim().length > 2 &&
     form.vehicleType !== '';
 
   const step2Valid =
@@ -152,18 +158,22 @@ export default function AddScreen() {
       return;
     }
     setSubmitting(true);
-    const { error } = await supabase.from('PACKAGES').insert({
-      SENDER_ID:         user.id,
-      PICKUP_ADDRESS:    form.pickupAddress.trim(),
-      RECIPIENT_ADDRESS: form.dropoffAddress.trim(),
-      RECIPIENT_NAME:    form.recipientName.trim(),
-      RECIPIENT_NUMBER:  form.contactNumber.trim(),
-      ORDER_CONTACT:     form.contactNumber.trim(),
-      VEHICLE_TYPE:      form.vehicleType,
-      PAYMENT_METHOD:    form.paymentMethod,
-      ITEM_TYPES:        form.itemType || 'Others',
-      NOTES:             form.notes.trim() || null,
-      STATUS:            'PENDING',
+    const { data: _id, error } = await supabase.rpc('insert_package', {
+      p_sender_id: user.id,
+      p_pickup_address: form.pickup.address.trim(),
+      p_pickup_lat: form.pickup.lat,
+      p_pickup_lng: form.pickup.lng,
+      p_recipient_address: form.dropoff.address.trim(),
+      p_dropoff_lat: form.dropoff.lat,
+      p_dropoff_lng: form.dropoff.lng,
+      p_recipient_name: form.recipientName.trim(),
+      p_recipient_number: form.contactNumber.trim(),
+      p_order_contact: form.contactNumber.trim(),
+      p_vehicle_type: form.vehicleType,
+      p_payment_method: form.paymentMethod,
+      p_item_types: form.itemType || 'Others',
+      p_notes: form.notes.trim() || null,
+      p_status: 'PENDING',
     });
     setSubmitting(false);
 
@@ -176,16 +186,7 @@ export default function AddScreen() {
       {
         text: 'View Orders',
         onPress: () => {
-          setForm({
-            pickupAddress: '',
-            dropoffAddress: '',
-            vehicleType: '',
-            recipientName: '',
-            contactNumber: (user?.user_metadata?.phone_number as string) ?? '',
-            paymentMethod: 'cash',
-            itemType: '',
-            notes: '',
-          });
+          setForm(blankForm());
           setStep(1);
           router.replace('/(tabs)/orders');
         },
@@ -203,17 +204,16 @@ export default function AddScreen() {
       >
         <Text style={styles.sectionLabel}>Locations</Text>
 
-        <InputRow
-          icon="place"
+        <LocationPicker
           placeholder="Pick-Up Location"
-          value={form.pickupAddress}
-          onChangeText={(t) => set('pickupAddress', t)}
+          value={form.pickup}
+          onChange={(v) => set('pickup', v)}
+          showCurrentLocation
         />
-        <InputRow
-          icon="flag"
+        <LocationPicker
           placeholder="Drop-Off Location"
-          value={form.dropoffAddress}
-          onChangeText={(t) => set('dropoffAddress', t)}
+          value={form.dropoff}
+          onChange={(v) => set('dropoff', v)}
         />
 
         <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Vehicles Available</Text>
