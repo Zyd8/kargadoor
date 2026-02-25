@@ -37,6 +37,13 @@ export interface DeliveryMapModalProps {
   onDelivered: () => void;
 }
 
+function base64ToBytes(base64: string): Uint8Array {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
   const dlat = ((lat2 - lat1) * Math.PI) / 180;
@@ -207,19 +214,19 @@ export default function DeliveryMapModal({
       quality: 0.7,
       mediaTypes: 'images' as any,
       allowsEditing: false,
+      base64: true,
     });
 
-    if (result.canceled || !result.assets?.[0]?.uri) return;
+    if (result.canceled || !result.assets?.[0]?.base64) return;
 
     setSubmitting(true);
     try {
-      const uri  = result.assets[0].uri;
-      const blob = await fetch(uri).then((r) => r.blob());
-      const path = `${packageId}.jpg`;
+      const bytes = base64ToBytes(result.assets[0].base64!);
+      const path  = `${packageId}.jpg`;
 
       const { error: uploadErr } = await supabase.storage
         .from('pod-photos')
-        .upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
+        .upload(path, bytes, { upsert: true, contentType: 'image/jpeg' });
 
       if (uploadErr) throw uploadErr;
 

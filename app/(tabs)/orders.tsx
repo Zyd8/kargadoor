@@ -16,7 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
 
-import DeliveryMapModal from '@/components/DeliveryMapModal';
+import ActiveDeliveryModal from '@/components/ActiveDeliveryModal';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 
@@ -45,6 +45,8 @@ type Package = {
   CREATED_AT: string | null;
   ACCEPTED_AT: string | null;
   COMPLETED_AT: string | null;
+  PICKUP_CONFIRMED_AT: string | null;
+  PICKUP_POD: string | null;
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -110,17 +112,14 @@ function OrderCard({
   item,
   isDriver,
   onPress,
-  onDelivered,
 }: {
   item: Package;
   isDriver: boolean;
   onPress: (pkg: Package) => void;
-  onDelivered: (pkg: Package) => void;
 }) {
   const vehicleIcon = VEHICLE_ICON[item.VEHICLE_TYPE ?? ''] ?? 'local-shipping';
   const pickup  = item.PICKUP_ADDRESS   ?? '—';
   const dropoff = item.RECIPIENT_ADDRESS ?? '—';
-  const showDeliverBtn = isDriver && item.STATUS === 'IN_PROGRESS';
   const hasRoute = item.PICKUP_LAT != null && item.PICKUP_LNG != null && item.DROPOFF_LAT != null && item.DROPOFF_LNG != null;
 
   return (
@@ -163,34 +162,19 @@ function OrderCard({
         ) : null}
       </View>
 
-      {showDeliverBtn && (
-        <TouchableOpacity
-          style={styles.deliverBtn}
-          onPress={(e) => { e.stopPropagation(); onDelivered(item); }}
-          activeOpacity={0.85}
-        >
-          <MaterialIcons name="check-circle" size={18} color="#fff" />
-          <Text style={styles.deliverBtnText}>Mark as Delivered</Text>
-        </TouchableOpacity>
-      )}
     </TouchableOpacity>
   );
 }
 
 function OrderDetailModal({
   item,
-  isDriver,
   onClose,
-  onMarkDelivered,
 }: {
   item: Package;
-  isDriver: boolean;
   onClose: () => void;
-  onMarkDelivered?: (pkg: Package) => void;
 }) {
   const vehicleLabel = (item.VEHICLE_TYPE ?? '—').charAt(0).toUpperCase() + (item.VEHICLE_TYPE ?? '').slice(1);
   const paymentLabel = (item.PAYMENT_METHOD ?? '—').charAt(0).toUpperCase() + (item.PAYMENT_METHOD ?? '').slice(1);
-  const showDeliverBtn = isDriver && item.STATUS === 'IN_PROGRESS';
 
   const formatDate = (s: string | null) => {
     if (!s) return '—';
@@ -225,16 +209,6 @@ function OrderDetailModal({
             {item.ACCEPTED_AT ? <DetailRow label="Accepted" value={formatDate(item.ACCEPTED_AT)} /> : null}
             {item.COMPLETED_AT ? <DetailRow label="Completed" value={formatDate(item.COMPLETED_AT)} /> : null}
           </ScrollView>
-          {showDeliverBtn && onMarkDelivered && (
-            <TouchableOpacity
-              style={styles.modalDeliverBtn}
-              onPress={() => { onClose(); onMarkDelivered(item); }}
-              activeOpacity={0.85}
-            >
-              <MaterialIcons name="check-circle" size={20} color="#fff" />
-              <Text style={styles.modalDeliverBtnText}>Mark as Delivered</Text>
-            </TouchableOpacity>
-          )}
         </View>
       </View>
     </Modal>
@@ -256,8 +230,16 @@ export default function OrdersScreen() {
   const [orders, setOrders]         = useState<Package[]>([]);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<Package | null>(null);
-  const [deliveryTarget, setDeliveryTarget] = useState<Package | null>(null);
+  const [selectedOrder, setSelectedOrder]   = useState<Package | null>(null);
+  const [activeDelivery, setActiveDelivery] = useState<Package | null>(null);
+
+  const handleCardPress = useCallback((pkg: Package) => {
+    if (isDriver && pkg.STATUS === 'IN_PROGRESS') {
+      setActiveDelivery(pkg);
+    } else {
+      setSelectedOrder(pkg);
+    }
+  }, [isDriver]);
 
   const fetchOrders = useCallback(async () => {
     if (!user) { setOrders([]); setLoading(false); setRefreshing(false); return; }
@@ -301,8 +283,7 @@ export default function OrdersScreen() {
             <OrderCard
               item={item}
               isDriver={isDriver}
-              onPress={setSelectedOrder}
-              onDelivered={setDeliveryTarget}
+              onPress={handleCardPress}
             />
           )}
           contentContainerStyle={orders.length === 0 ? styles.emptyContainer : styles.listContent}
@@ -328,24 +309,16 @@ export default function OrdersScreen() {
       {selectedOrder && (
         <OrderDetailModal
           item={selectedOrder}
-          isDriver={isDriver}
           onClose={() => setSelectedOrder(null)}
-          onMarkDelivered={(pkg) => { setSelectedOrder(null); setDeliveryTarget(pkg); }}
         />
       )}
 
-      {deliveryTarget && (
-        <DeliveryMapModal
-          visible={!!deliveryTarget}
-          packageId={deliveryTarget.ID}
-          dropoffLat={deliveryTarget.DROPOFF_LAT}
-          dropoffLng={deliveryTarget.DROPOFF_LNG}
-          dropoffAddress={deliveryTarget.RECIPIENT_ADDRESS}
-          onClose={() => setDeliveryTarget(null)}
-          onDelivered={() => {
-            setDeliveryTarget(null);
-            fetchOrders();
-          }}
+      {activeDelivery && (
+        <ActiveDeliveryModal
+          visible={!!activeDelivery}
+          pkg={activeDelivery}
+          onClose={() => setActiveDelivery(null)}
+          onDelivered={() => { setActiveDelivery(null); fetchOrders(); }}
         />
       )}
     </SafeAreaView>
