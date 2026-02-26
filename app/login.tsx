@@ -25,6 +25,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const insets = useSafeAreaInsets();
 
   const handleLogin = async () => {
@@ -90,10 +91,17 @@ export default function LoginScreen() {
               placeholderTextColor={PLACEHOLDER}
               value={password}
               onChangeText={setPassword}
-              secureTextEntry
+              secureTextEntry={!showPassword}
               autoComplete="password"
               editable={!loading}
             />
+            <TouchableOpacity onPress={() => setShowPassword(v => !v)} hitSlop={8}>
+              <MaterialIcons
+                name={showPassword ? 'visibility-off' : 'visibility'}
+                size={20}
+                color={PLACEHOLDER}
+              />
+            </TouchableOpacity>
           </View>
 
           <TouchableOpacity style={styles.forgotWrap}>

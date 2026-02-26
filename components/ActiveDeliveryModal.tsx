@@ -231,17 +231,19 @@ export default function ActiveDeliveryModal({
   const [insideRadius, setInsideRadius] = useState(false);
   const [distKm, setDistKm]             = useState<number | null>(null);
   const [submitting, setSubmitting]     = useState(false);
+  const [delivered, setDelivered]       = useState(false);
 
   // Determine active destination based on phase
   const destLat = phase === 'pickup' ? pkg.PICKUP_LAT : pkg.DROPOFF_LAT;
   const destLng = phase === 'pickup' ? pkg.PICKUP_LNG : pkg.DROPOFF_LNG;
   const hasCoords = destLat != null && destLng != null;
 
-  // Reset phase when pkg changes (modal re-opened for same/different order)
+  // Reset state when pkg changes (modal re-opened for same/different order)
   useEffect(() => {
     setPhase(pkg.PICKUP_CONFIRMED_AT ? 'delivery' : 'pickup');
     setInsideRadius(false);
     setDistKm(null);
+    setDelivered(false);
   }, [pkg.ID, pkg.PICKUP_CONFIRMED_AT]);
 
   // GPS + heading watch
@@ -403,10 +405,9 @@ export default function ActiveDeliveryModal({
           title: 'Package Delivered!',
           body: 'Your package has been delivered successfully.',
         },
-      }).catch(() => {});
+      }).catch((e: unknown) => console.warn('[send-notification]', e));
 
-      Alert.alert('Delivered!', 'Order marked as complete.');
-      onDelivered();
+      setDelivered(true);
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Could not complete delivery.');
     } finally {
@@ -422,6 +423,20 @@ export default function ActiveDeliveryModal({
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
+        {/* Delivery success overlay */}
+        {delivered && (
+          <View style={styles.successOverlay}>
+            <MaterialIcons name="check-circle" size={72} color={PRIMARY} />
+            <Text style={styles.successTitle}>Delivered!</Text>
+            <Text style={styles.successSub}>Order marked as complete.</Text>
+            <TouchableOpacity
+              style={styles.successBtn}
+              onPress={() => { setDelivered(false); onDelivered(); }}
+            >
+              <Text style={styles.successBtnText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         {/* Top bar */}
         <View style={styles.topBar}>
           <TouchableOpacity onPress={onClose} hitSlop={12}>
@@ -621,4 +636,17 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   actionBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+
+  successOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    zIndex: 100,
+  },
+  successTitle:   { fontSize: 28, fontWeight: '800', color: '#1A1A1A', marginTop: 20, marginBottom: 8 },
+  successSub:     { fontSize: 15, color: '#666', textAlign: 'center', marginBottom: 32 },
+  successBtn:     { backgroundColor: PRIMARY, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 40 },
+  successBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

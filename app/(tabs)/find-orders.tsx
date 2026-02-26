@@ -4,6 +4,7 @@
  * Pending orders within the selected radius appear as amber pins.
  * Driver can tap a pin to see details and accept the order.
  */
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import Constants from 'expo-constants';
 import * as Location from 'expo-location';
 import { useFocusEffect } from 'expo-router';
@@ -219,11 +220,12 @@ export default function FindOrdersScreen() {
   const webRef  = useRef<WebView>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [coords, setCoords]       = useState<{ lat: number; lng: number } | null>(null);
-  const [allOrders, setAllOrders] = useState<PendingOrder[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [accepting, setAccepting] = useState(false);
-  const [radiusKm, setRadiusKm]   = useState<number>(10);
+  const [coords, setCoords]             = useState<{ lat: number; lng: number } | null>(null);
+  const [allOrders, setAllOrders]       = useState<PendingOrder[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [accepting, setAccepting]       = useState(false);
+  const [radiusKm, setRadiusKm]         = useState<number>(10);
+  const [locationDenied, setLocationDenied] = useState(false);
 
   const getVisible = useCallback(
     (orders: PendingOrder[], c: { lat: number; lng: number } | null, r: number) =>
@@ -262,6 +264,7 @@ export default function FindOrdersScreen() {
 
       (async () => {
         const { status } = await Location.requestForegroundPermissionsAsync();
+        setLocationDenied(status !== 'granted');
         const pos = status === 'granted'
           ? await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
           : null;
@@ -331,7 +334,7 @@ export default function FindOrdersScreen() {
           title: 'Order Accepted!',
           body: 'A driver is heading to pick up your package.',
         },
-      }).catch(() => {});
+      }).catch((e: unknown) => console.warn('[send-notification]', e));
 
       Alert.alert('Order accepted!', 'Head to the pickup location. Check your Orders tab.');
     } catch { /* ignore parse errors */ }
@@ -376,6 +379,15 @@ export default function FindOrdersScreen() {
         ))}
       </View>
 
+      {locationDenied && (
+        <View style={styles.locationBanner}>
+          <MaterialIcons name="location-off" size={16} color="#92400E" />
+          <Text style={styles.locationBannerText}>
+            Location unavailable — showing default area (Manila)
+          </Text>
+        </View>
+      )}
+
       <WebView
         ref={webRef}
         source={{ html: buildMapHTML(TOMTOM_KEY, coords.lat, coords.lng, visibleOrders, radiusKm) }}
@@ -408,4 +420,7 @@ const styles = StyleSheet.create({
   radiusPillTextActive:{ color: PRIMARY, fontWeight: '700' },
 
   map: { flex: 1 },
+
+  locationBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FEF3C7', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#FDE68A' },
+  locationBannerText: { fontSize: 12, color: '#92400E', fontWeight: '500', flex: 1 },
 });

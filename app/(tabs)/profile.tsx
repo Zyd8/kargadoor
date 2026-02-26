@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -216,6 +218,7 @@ export default function ProfileScreen() {
         <Text style={styles.title}>Profile</Text>
       </View>
 
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Avatar + identity */}
         <View style={styles.avatarRow}>
@@ -257,6 +260,7 @@ export default function ProfileScreen() {
           <Text style={styles.signOutText}>{debugBypass ? 'Sign out (leave app)' : 'Sign Out'}</Text>
         </TouchableOpacity>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

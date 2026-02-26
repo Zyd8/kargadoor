@@ -3,6 +3,7 @@ import type { Session, User } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { router } from 'expo-router';
 
 import { supabase } from '@/lib/supabase';
 
@@ -106,6 +107,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfileRole(r === 'DRIVER' ? 'DRIVER' : 'USER');
     })();
     return () => { mounted = false; };
+  }, [user?.id]);
+
+  // Navigate to Orders tab when user taps any push notification
+  useEffect(() => {
+    if (!user) return;
+    const sub = Notifications.addNotificationResponseReceivedListener(() => {
+      router.navigate('/(tabs)/orders');
+    });
+    return () => sub.remove();
   }, [user?.id]);
 
   // Email/password only — no OAuth (e.g. Google) to avoid email rate exceeded.

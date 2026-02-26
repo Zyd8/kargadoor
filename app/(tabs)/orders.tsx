@@ -4,6 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
   RefreshControl,
@@ -168,10 +169,16 @@ function OrderCard({
 
 function OrderDetailModal({
   item,
+  isDriver,
   onClose,
+  onCancel,
+  isCancelling,
 }: {
   item: Package;
+  isDriver: boolean;
   onClose: () => void;
+  onCancel: (pkg: Package) => void;
+  isCancelling: boolean;
 }) {
   const vehicleLabel = (item.VEHICLE_TYPE ?? '—').charAt(0).toUpperCase() + (item.VEHICLE_TYPE ?? '').slice(1);
   const paymentLabel = (item.PAYMENT_METHOD ?? '—').charAt(0).toUpperCase() + (item.PAYMENT_METHOD ?? '').slice(1);
@@ -208,6 +215,19 @@ function OrderDetailModal({
             <DetailRow label="Created" value={formatDate(item.CREATED_AT)} />
             {item.ACCEPTED_AT ? <DetailRow label="Accepted" value={formatDate(item.ACCEPTED_AT)} /> : null}
             {item.COMPLETED_AT ? <DetailRow label="Completed" value={formatDate(item.COMPLETED_AT)} /> : null}
+
+            {!isDriver && item.STATUS === 'PENDING' && (
+              <TouchableOpacity
+                style={[styles.cancelOrderBtn, isCancelling && { opacity: 0.6 }]}
+                onPress={() => onCancel(item)}
+                disabled={isCancelling}
+              >
+                {isCancelling
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.cancelOrderBtnText}>Cancel Order</Text>
+                }
+              </TouchableOpacity>
+            )}
           </ScrollView>
         </View>
       </View>
@@ -230,8 +250,10 @@ export default function OrdersScreen() {
   const [orders, setOrders]         = useState<Package[]>([]);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError]           = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder]   = useState<Package | null>(null);
   const [activeDelivery, setActiveDelivery] = useState<Package | null>(null);
+  const [cancellingId, setCancellingId]     = useState<string | null>(null);
 
   const handleCardPress = useCallback((pkg: Package) => {
     if (isDriver && pkg.STATUS === 'IN_PROGRESS') {
@@ -243,21 +265,66 @@ export default function OrdersScreen() {
 
   const fetchOrders = useCallback(async () => {
     if (!user) { setOrders([]); setLoading(false); setRefreshing(false); return; }
-    const { data } = await supabase.rpc('get_my_orders', {
+    const { data, error: fetchErr } = await supabase.rpc('get_my_orders', {
       p_user_id: user.id,
       p_is_driver: isDriver,
     });
+    if (fetchErr) {
+      setError(fetchErr.message);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+    setError(null);
     const list = Array.isArray(data) ? (data as Package[]) : [];
     setOrders(list);
     setLoading(false);
     setRefreshing(false);
   }, [user?.id, isDriver]);
 
+  const handleCancelOrder = useCallback((pkg: Package) => {
+    Alert.alert(
+      'Cancel Order',
+      'Are you sure you want to cancel this order?',
+      [
+        { text: 'No', style: 'cancel' },
+        {
+          text: 'Yes, Cancel',
+          style: 'destructive',
+          onPress: async () => {
+            setCancellingId(pkg.ID);
+            const { data: result, error: rpcErr } = await supabase.rpc('cancel_order', {
+              p_package_id: pkg.ID,
+            });
+            setCancellingId(null);
+            if (rpcErr || !result?.ok) {
+              Alert.alert('Error', rpcErr?.message ?? result?.error ?? 'Could not cancel order.');
+              return;
+            }
+            setSelectedOrder(null);
+            fetchOrders();
+          },
+        },
+      ]
+    );
+  }, [fetchOrders]);
+
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
       fetchOrders();
-    }, [fetchOrders])
+
+      // Real-time updates for USER — keeps order status in sync without manual refresh
+      if (!isDriver && user) {
+        const channel = supabase
+          .channel(`orders-user-${user.id}`)
+          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'PACKAGES' }, () => {
+            fetchOrders();
+          })
+          .subscribe();
+        return () => { supabase.removeChannel(channel); };
+      }
+    }, [fetchOrders, isDriver, user?.id])
   );
 
   const onRefresh = () => {
@@ -274,6 +341,14 @@ export default function OrdersScreen() {
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={PRIMARY} />
+        </View>
+      ) : error ? (
+        <View style={styles.center}>
+          <MaterialIcons name="wifi-off" size={48} color="#CCC" />
+          <Text style={styles.emptyTitle}>Could not load orders</Text>
+          <TouchableOpacity onPress={() => { setLoading(true); fetchOrders(); }}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -309,7 +384,10 @@ export default function OrdersScreen() {
       {selectedOrder && (
         <OrderDetailModal
           item={selectedOrder}
+          isDriver={isDriver}
           onClose={() => setSelectedOrder(null)}
+          onCancel={handleCancelOrder}
+          isCancelling={cancellingId === selectedOrder.ID}
         />
       )}
 
@@ -388,4 +466,8 @@ const styles = StyleSheet.create({
   detailValue:     { fontSize: 15, color: '#1A1A1A', lineHeight: 22 },
   modalDeliverBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: PRIMARY, marginHorizontal: 20, marginBottom: 24, paddingVertical: 14, borderRadius: 12 },
   modalDeliverBtnText: { fontSize: 16, fontWeight: '700', color: '#fff' },
+
+  cancelOrderBtn: { backgroundColor: '#EF4444', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 20 },
+  cancelOrderBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  retryText: { color: PRIMARY, fontWeight: '600', marginTop: 12, fontSize: 15 },
 });
