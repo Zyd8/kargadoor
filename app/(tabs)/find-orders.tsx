@@ -61,6 +61,7 @@ type PendingOrder = {
   RECIPIENT_NAME: string | null;
   ORDER_CONTACT: string | null;
   PAYMENT_METHOD: string | null;
+  SENDER_AVATAR_URL?: string | null;
 };
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -149,20 +150,30 @@ function buildMapHTML(
   var arrowEl = null;
   map.whenReady(function(){ arrowEl = document.querySelector('.driver-arrow-inner'); });
 
-  // ── Order pin icon (amber) ────────────────────────────────────────────────
-  function orderIcon(id) {
+  // Global handler for avatar load errors (avoids fragile inline quote escaping)
+  window.orderAvatarError = function(img) {
+    img.style.display = 'none';
+    var next = img.nextElementSibling;
+    if (next) next.style.display = 'flex';
+  };
+
+  // ── Order marker: circle with avatar or fallback person icon ─────────────────
+  function orderIcon(id, avatarUrl) {
+    var url = (avatarUrl || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    var showFallback = !url;
+    var imgHtml = url ? '<img src="'+url+'" class="order-avatar-img" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="orderAvatarError(this)"/>' : '';
+    var fallbackHtml = '<div class="order-avatar-fallback" style="display:'+(showFallback?'flex':'none')+';width:100%;height:100%;border-radius:50%;background:#E5E7EB;align-items:center;justify-content:center">'
+      +'<svg width="20" height="20" viewBox="0 0 24 24" fill="#9CA3AF"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>';
+    var html = '<div id="pin-'+id+'" style="display:flex;flex-direction:column;align-items:center">'
+      +'<div style="width:40px;height:40px;border-radius:50%;border:3px solid #F59E0B;overflow:hidden;background:#fff;box-sizing:border-box">'
+      +imgHtml+fallbackHtml
+      +'</div>'
+      +'<div style="margin-top:2px;background:#F59E0B;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap">PENDING</div>'
+      +'</div>';
     return L.divIcon({
       className:'',
-      html:'<div id="pin-'+id+'" style="position:relative;width:34px;height:42px">'
-        +'<svg viewBox="0 0 34 42" xmlns="http://www.w3.org/2000/svg">'
-        +'<path d="M17 0C10.37 0 5 5.37 5 12c0 9 12 30 12 30S29 21 29 12C29 5.37 23.63 0 17 0z" fill="#F59E0B"/>'
-        +'<circle cx="17" cy="12" r="5.5" fill="#fff"/>'
-        +'</svg>'
-        +'<div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);'
-        +'background:#F59E0B;color:#fff;font-size:9px;font-weight:700;'
-        +'padding:1px 4px;border-radius:4px;white-space:nowrap">PENDING</div>'
-        +'</div>',
-      iconSize:[34,52], iconAnchor:[17,52]
+      html: html,
+      iconSize:[40,54], iconAnchor:[20,54]
     });
   }
 
@@ -177,7 +188,8 @@ function buildMapHTML(
       var lng = o.PICKUP_LNG != null ? o.PICKUP_LNG : (o.pickup_lng);
       if (typeof lat !== 'number' || typeof lng !== 'number' || !isFinite(lat) || !isFinite(lng)) return;
       var id = o.ID != null ? o.ID : o.id;
-      var m = L.marker([lat, lng], {icon: orderIcon(id)}).addTo(map);
+      var avatarUrl = (o.SENDER_AVATAR_URL != null ? o.SENDER_AVATAR_URL : (o.sender_avatar_url || '')) || '';
+      var m = L.marker([lat, lng], {icon: orderIcon(id, avatarUrl)}).addTo(map);
 
       var pickup  = (o.PICKUP_ADDRESS || o.pickup_address) || 'Unknown pickup';
       var dropoff = (o.RECIPIENT_ADDRESS || o.recipient_address) || 'Unknown dropoff';
