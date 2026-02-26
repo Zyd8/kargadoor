@@ -1,9 +1,11 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -16,6 +18,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/contexts/auth-context';
+import { supabase } from '@/lib/supabase';
+
+function base64ToBytes(base64: string): Uint8Array {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
 
 const PRIMARY = '#1B6B4A';
 const PLACEHOLDER = '#A0A0A0';
@@ -29,7 +39,23 @@ export default function RegisterScreen() {
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<'USER' | 'DRIVER'>('USER');
   const [loading, setLoading] = useState(false);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [avatarBase64, setAvatarBase64] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+
+  const handlePickAvatar = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+      base64: true,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setAvatarUri(result.assets[0].uri);
+      setAvatarBase64(result.assets[0].base64 ?? null);
+    }
+  };
 
   const handleRegister = async () => {
     if (!name.trim() || !email.trim() || !password || !confirmPassword || !phone.trim()) {
@@ -45,12 +71,31 @@ export default function RegisterScreen() {
       return;
     }
     setLoading(true);
-    const { error } = await signUp(email.trim(), password, name.trim(), phone.trim(), role);
-    setLoading(false);
+    const { error, userId } = await signUp(email.trim(), password, name.trim(), phone.trim(), role);
     if (error) {
+      setLoading(false);
       Alert.alert('Sign up failed', error.message);
       return;
     }
+
+    // Best-effort avatar upload — does not block registration
+    if (userId && avatarBase64) {
+      try {
+        const bytes = base64ToBytes(avatarBase64);
+        const path = `${userId}.jpg`;
+        const { error: uploadErr } = await supabase.storage
+          .from('avatars')
+          .upload(path, bytes, { contentType: 'image/jpeg', upsert: true });
+        if (!uploadErr) {
+          const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
+          if (urlData?.publicUrl) {
+            await supabase.from('PROFILE').update({ AVATAR_URL: urlData.publicUrl }).eq('ID', userId);
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    setLoading(false);
     Alert.alert(
       'Check your email',
       'We sent you a confirmation link. Confirm your email, then come back to log in.',
@@ -85,6 +130,19 @@ export default function RegisterScreen() {
           </TouchableOpacity>
 
           <Text style={styles.cardTitle}>Sign Up</Text>
+
+          {/* Optional avatar */}
+          <TouchableOpacity style={styles.avatarPicker} onPress={handlePickAvatar} activeOpacity={0.8} disabled={loading}>
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={styles.avatarImg} />
+            ) : (
+              <MaterialIcons name="person" size={36} color="#C8D8D0" />
+            )}
+            <View style={styles.avatarCamBadge}>
+              <MaterialIcons name="photo-camera" size={14} color="#fff" />
+            </View>
+          </TouchableOpacity>
+          <Text style={styles.avatarHint}>Profile photo (optional)</Text>
 
           <View style={styles.inputRow}>
             <MaterialIcons name="person" size={20} color={PLACEHOLDER} style={styles.inputIcon} />
@@ -223,4 +281,9 @@ const styles = StyleSheet.create({
   btn:        { backgroundColor: PRIMARY, borderRadius: 14, height: 52, alignItems: 'center', justifyContent: 'center', marginTop: 8, marginBottom: 28 },
   btnDisabled:{ opacity: 0.65 },
   btnText:    { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  avatarPicker:  { alignSelf: 'center', width: 80, height: 80, borderRadius: 40, backgroundColor: '#EEF2EE', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  avatarImg:     { width: 80, height: 80, borderRadius: 40 },
+  avatarCamBadge:{ position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderRadius: 12, backgroundColor: PRIMARY, alignItems: 'center', justifyContent: 'center' },
+  avatarHint:    { textAlign: 'center', fontSize: 12, color: '#AAA', marginBottom: 16 },
 });

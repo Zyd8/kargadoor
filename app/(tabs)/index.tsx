@@ -47,6 +47,8 @@ type RecentOrder = {
 type DriverStats = {
   totalDeliveries: number;
   totalEarnings: number;
+  inProgressCount: number;
+  cancelledCount: number;
 };
 
 type ActiveDelivery = {
@@ -195,7 +197,7 @@ function UserHome({ userId }: { userId: string }) {
 // ── DRIVER home ──────────────────────────────────────────────────────────────
 
 function DriverHome({ userId }: { userId: string }) {
-  const [stats, setStats]       = useState<DriverStats>({ totalDeliveries: 0, totalEarnings: 0 });
+  const [stats, setStats]       = useState<DriverStats>({ totalDeliveries: 0, totalEarnings: 0, inProgressCount: 0, cancelledCount: 0 });
   const [delivery, setDelivery] = useState<ActiveDelivery | null>(null);
   const [loading, setLoading]   = useState(true);
 
@@ -205,7 +207,7 @@ function DriverHome({ userId }: { userId: string }) {
       (async () => {
         setLoading(true);
 
-        const [completedRes, activeRes] = await Promise.all([
+        const [completedRes, activeRes, inProgressRes, cancelledRes] = await Promise.all([
           supabase
             .from('PACKAGES')
             .select('PRICE')
@@ -218,6 +220,16 @@ function DriverHome({ userId }: { userId: string }) {
             .eq('STATUS', 'IN_PROGRESS')
             .limit(1)
             .maybeSingle(),
+          supabase
+            .from('PACKAGES')
+            .select('*', { count: 'exact', head: true })
+            .eq('DRIVER_ID', userId)
+            .eq('STATUS', 'IN_PROGRESS'),
+          supabase
+            .from('PACKAGES')
+            .select('*', { count: 'exact', head: true })
+            .eq('DRIVER_ID', userId)
+            .eq('STATUS', 'CANCELLED'),
         ]);
 
         if (!mounted) return;
@@ -225,7 +237,12 @@ function DriverHome({ userId }: { userId: string }) {
         const completed = completedRes.data ?? [];
         const totalDeliveries = completed.length;
         const totalEarnings = completed.reduce((sum: number, r: { PRICE: number | null }) => sum + (r.PRICE ?? 0), 0);
-        setStats({ totalDeliveries, totalEarnings });
+        setStats({
+          totalDeliveries,
+          totalEarnings,
+          inProgressCount: inProgressRes.count ?? 0,
+          cancelledCount: cancelledRes.count ?? 0,
+        });
         setDelivery((activeRes.data as ActiveDelivery | null) ?? null);
         setLoading(false);
       })();
@@ -243,17 +260,36 @@ function DriverHome({ userId }: { userId: string }) {
 
   return (
     <>
-      {/* Stats row */}
+      {/* Stats row — earnings + total deliveries */}
       <View style={styles.statsRow}>
         <View style={styles.statCard}>
           <Text style={styles.statValue}>{stats.totalDeliveries}</Text>
-          <Text style={styles.statLabel}>Deliveries</Text>
+          <Text style={styles.statLabel}>Completed</Text>
         </View>
         <View style={[styles.statCard, { marginLeft: 12 }]}>
           <Text style={styles.statValue}>
             ₱{stats.totalEarnings.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
           </Text>
           <Text style={styles.statLabel}>Total Earnings</Text>
+        </View>
+      </View>
+
+      {/* Status breakdown pills */}
+      <View style={styles.statusRow}>
+        <View style={styles.statusPill}>
+          <View style={[styles.statusDot, { backgroundColor: PRIMARY }]} />
+          <Text style={styles.statusPillCount}>{stats.inProgressCount}</Text>
+          <Text style={styles.statusPillLabel}>In Progress</Text>
+        </View>
+        <View style={styles.statusPill}>
+          <View style={[styles.statusDot, { backgroundColor: '#6B7280' }]} />
+          <Text style={styles.statusPillCount}>{stats.totalDeliveries}</Text>
+          <Text style={styles.statusPillLabel}>Complete</Text>
+        </View>
+        <View style={styles.statusPill}>
+          <View style={[styles.statusDot, { backgroundColor: '#EF4444' }]} />
+          <Text style={styles.statusPillCount}>{stats.cancelledCount}</Text>
+          <Text style={styles.statusPillLabel}>Cancelled</Text>
         </View>
       </View>
 
@@ -417,10 +453,16 @@ const styles = StyleSheet.create({
   seeAllText:         { fontSize: 14, color: PRIMARY, fontWeight: '600' },
 
   // Driver stats
-  statsRow:   { flexDirection: 'row', marginBottom: 24 },
+  statsRow:   { flexDirection: 'row', marginBottom: 12 },
   statCard:   { flex: 1, backgroundColor: CARD_BG, borderRadius: 16, padding: 18, alignItems: 'flex-start' },
   statValue:  { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 4 },
   statLabel:  { fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: '500' },
+
+  statusRow:       { flexDirection: 'row', gap: 10, marginBottom: 24 },
+  statusPill:      { flex: 1, backgroundColor: '#fff', borderRadius: 14, padding: 14, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 2 },
+  statusDot:       { width: 8, height: 8, borderRadius: 4, marginBottom: 6 },
+  statusPillCount: { fontSize: 20, fontWeight: '800', color: '#1A1A1A', marginBottom: 2 },
+  statusPillLabel: { fontSize: 11, color: '#888', fontWeight: '500', textAlign: 'center' },
 
   // Active delivery card (DRIVER)
   deliveryCard: {

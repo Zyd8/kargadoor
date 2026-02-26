@@ -35,7 +35,7 @@ type AuthContextType = {
   debugBypass: boolean;
   setDebugBypass: (value: boolean) => void;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, name: string, phone: string, role?: 'USER' | 'DRIVER') => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, name: string, phone: string, role?: 'USER' | 'DRIVER') => Promise<{ error: Error | null; userId: string | null }>;
   userRole: 'USER' | 'DRIVER';
   signOut: () => Promise<void>;
 };
@@ -126,12 +126,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Email/password only — no OAuth (e.g. Google) to avoid email rate exceeded.
   const signUp = useCallback(async (email: string, password: string, name: string, phone: string, role: 'USER' | 'DRIVER' = 'USER') => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: { data: { name, phone_number: phone, role } },
     });
-    return { error: error ?? null };
+    return { error: error ?? null, userId: data.user?.id ?? null };
   }, []);
 
   const signOut = useCallback(async () => {

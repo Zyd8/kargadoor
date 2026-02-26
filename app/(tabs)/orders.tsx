@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Modal,
   RefreshControl,
   ScrollView,
@@ -48,6 +49,8 @@ type Package = {
   COMPLETED_AT: string | null;
   PICKUP_CONFIRMED_AT: string | null;
   PICKUP_POD: string | null;
+  DRIVER_AVATAR_URL: string | null;
+  DRIVER_NAME: string | null;
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -202,6 +205,21 @@ function OrderDetailModal({
             </TouchableOpacity>
           </View>
           <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+            {!isDriver && (item.STATUS === 'IN_PROGRESS' || item.STATUS === 'COMPLETE') && (
+              <View style={styles.driverRow}>
+                {item.DRIVER_AVATAR_URL ? (
+                  <Image source={{ uri: item.DRIVER_AVATAR_URL }} style={styles.driverAvatar} />
+                ) : (
+                  <View style={styles.driverAvatarFallback}>
+                    <MaterialIcons name="local-shipping" size={22} color={PRIMARY} />
+                  </View>
+                )}
+                <View>
+                  <Text style={styles.driverLabel}>Your Driver</Text>
+                  <Text style={styles.driverName}>{item.DRIVER_NAME ?? 'Driver'}</Text>
+                </View>
+              </View>
+            )}
             <DetailRow label="Status" value={(item.STATUS ?? '—').replace('_', ' ')} />
             <DetailRow label="Pick-up" value={item.PICKUP_ADDRESS ?? '—'} />
             <DetailRow label="Drop-off" value={item.RECIPIENT_ADDRESS ?? '—'} />
@@ -470,4 +488,10 @@ const styles = StyleSheet.create({
   cancelOrderBtn: { backgroundColor: '#EF4444', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 20 },
   cancelOrderBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
   retryText: { color: PRIMARY, fontWeight: '600', marginTop: 12, fontSize: 15 },
+
+  driverRow:           { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#F0F6F3', borderRadius: 12, padding: 12, marginBottom: 16 },
+  driverAvatar:        { width: 48, height: 48, borderRadius: 24, backgroundColor: '#C8D8D0' },
+  driverAvatarFallback:{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#EEF2EE', alignItems: 'center', justifyContent: 'center' },
+  driverLabel:         { fontSize: 11, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.5 },
+  driverName:          { fontSize: 15, fontWeight: '700', color: '#1A1A1A', marginTop: 2 },
 });

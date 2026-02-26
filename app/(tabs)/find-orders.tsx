@@ -7,7 +7,7 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import Constants from 'expo-constants';
 import * as Location from 'expo-location';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -30,6 +30,25 @@ const PRIMARY     = '#1B6B4A';
 
 const RADIUS_OPTIONS = [2, 5, 10, 20, 9999] as const;
 const RADIUS_LABELS: Record<number, string> = { 2: '2 km', 5: '5 km', 10: '10 km', 20: '20 km', 9999: 'Any' };
+
+const VEHICLE_ICON: Record<string, React.ComponentProps<typeof MaterialIcons>['name']> = {
+  motorcycle: 'two-wheeler',
+  car:        'directions-car',
+  truck:      'local-shipping',
+};
+
+function capitalize(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+type VehicleRow = {
+  ID: string;
+  DRIVER_ID: string;
+  PLATE: string | null;
+  MODEL: string | null;
+  TYPE: string | null;
+  IS_ACTIVE: boolean;
+};
 
 type PendingOrder = {
   ID: string;
@@ -220,12 +239,16 @@ export default function FindOrdersScreen() {
   const webRef  = useRef<WebView>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [coords, setCoords]             = useState<{ lat: number; lng: number } | null>(null);
-  const [allOrders, setAllOrders]       = useState<PendingOrder[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [accepting, setAccepting]       = useState(false);
-  const [radiusKm, setRadiusKm]         = useState<number>(10);
+  const activeVehicleRef = useRef<VehicleRow | null>(null);
+
+  const [coords, setCoords]                 = useState<{ lat: number; lng: number } | null>(null);
+  const [allOrders, setAllOrders]           = useState<PendingOrder[]>([]);
+  const [loading, setLoading]               = useState(true);
+  const [accepting, setAccepting]           = useState(false);
+  const [radiusKm, setRadiusKm]             = useState<number>(10);
   const [locationDenied, setLocationDenied] = useState(false);
+  const [vehicleGate, setVehicleGate]       = useState(false);
+  const [activeVehicle, setActiveVehicle]   = useState<VehicleRow | null>(null);
 
   const getVisible = useCallback(
     (orders: PendingOrder[], c: { lat: number; lng: number } | null, r: number) =>
@@ -249,9 +272,12 @@ export default function FindOrdersScreen() {
     );
   }, [radiusKm, allOrders, coords]);
 
-  const fetchOrders = useCallback(async () => {
+  const fetchOrders = useCallback(async (vehicleType: string | null = null) => {
     const driverId = user?.id ?? null;
-    const { data } = await supabase.rpc('get_pending_orders', { p_driver_id: driverId });
+    const { data } = await supabase.rpc('get_pending_orders', {
+      p_driver_id: driverId,
+      p_vehicle_type: vehicleType,
+    });
     const list = (Array.isArray(data) ? data : []) as PendingOrder[];
     setAllOrders(list);
   }, [user?.id]);
@@ -259,10 +285,39 @@ export default function FindOrdersScreen() {
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
+      setVehicleGate(false);
+      setActiveVehicle(null);
+      activeVehicleRef.current = null;
+
       let posSub: Location.LocationSubscription | null = null;
       let headSub: Location.LocationSubscription | null = null;
 
       (async () => {
+        const driverId = user?.id;
+        if (!driverId) { setLoading(false); return; }
+
+        // ── 1. Check for active vehicle ────────────────────────────────────
+        const { data: vehicleData } = await supabase.rpc('get_vehicles', { p_driver_id: driverId });
+        const vehicleList = (Array.isArray(vehicleData) ? vehicleData : []) as VehicleRow[];
+        let active = vehicleList.find((v) => v.IS_ACTIVE) ?? null;
+
+        if (!active && vehicleList.length > 0) {
+          await supabase.rpc('set_active_vehicle', {
+            p_vehicle_id: vehicleList[0].ID,
+            p_driver_id: driverId,
+          });
+          active = { ...vehicleList[0], IS_ACTIVE: true };
+        }
+
+        if (!active) {
+          setVehicleGate(true);
+          setLoading(false);
+          return;
+        }
+        setActiveVehicle(active);
+        activeVehicleRef.current = active;
+
+        // ── 2. Get location ────────────────────────────────────────────────
         const { status } = await Location.requestForegroundPermissionsAsync();
         setLocationDenied(status !== 'granted');
         const pos = status === 'granted'
@@ -273,7 +328,8 @@ export default function FindOrdersScreen() {
           : { lat: DEFAULT_LAT, lng: DEFAULT_LNG };
         setCoords(c);
 
-        await fetchOrders();
+        // ── 3. Fetch orders for this vehicle type ──────────────────────────
+        await fetchOrders(active.TYPE ?? null);
         setLoading(false);
 
         if (status === 'granted') {
@@ -294,14 +350,17 @@ export default function FindOrdersScreen() {
         }
       })();
 
-      pollRef.current = setInterval(fetchOrders, 30_000);
+      pollRef.current = setInterval(
+        () => fetchOrders(activeVehicleRef.current?.TYPE ?? null),
+        30_000
+      );
 
       return () => {
         posSub?.remove();
         headSub?.remove();
         if (pollRef.current) clearInterval(pollRef.current);
       };
-    }, [fetchOrders])
+    }, [fetchOrders, user?.id])
   );
 
   const handleMessage = useCallback(async (event: { nativeEvent: { data: string } }) => {
@@ -340,7 +399,7 @@ export default function FindOrdersScreen() {
     } catch { /* ignore parse errors */ }
   }, [accepting, user]);
 
-  if (loading || !coords) {
+  if (loading || (!vehicleGate && !coords)) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={PRIMARY} />
@@ -349,14 +408,54 @@ export default function FindOrdersScreen() {
     );
   }
 
+  if (vehicleGate) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Find Orders</Text>
+        </View>
+        <View style={styles.gateContainer}>
+          <MaterialIcons name="directions-car" size={64} color="#C8D8D0" />
+          <Text style={styles.gateTitle}>No active vehicle</Text>
+          <Text style={styles.gateSub}>
+            Add and select a vehicle in your profile before finding orders.
+          </Text>
+          <TouchableOpacity
+            style={styles.gateBtn}
+            onPress={() => router.navigate('/(tabs)/profile')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.gateBtnText}>Go to Profile</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const vehicleIconName = activeVehicle?.TYPE
+    ? (VEHICLE_ICON[activeVehicle.TYPE.toLowerCase()] ?? 'directions-car')
+    : 'directions-car';
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Find Orders</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.title}>Find Orders</Text>
+          {activeVehicle?.TYPE && (
+            <View style={styles.vehicleBadge}>
+              <MaterialIcons name={vehicleIconName} size={13} color={PRIMARY} />
+              <Text style={styles.vehicleBadgeText}>{capitalize(activeVehicle.TYPE)}</Text>
+            </View>
+          )}
+        </View>
         <View style={styles.headerRight}>
           {accepting && <ActivityIndicator size="small" color={PRIMARY} style={{ marginRight: 10 }} />}
-          <TouchableOpacity onPress={fetchOrders} style={styles.refreshBtn} hitSlop={8}>
+          <TouchableOpacity
+            onPress={() => fetchOrders(activeVehicle?.TYPE ?? null)}
+            style={styles.refreshBtn}
+            hitSlop={8}
+          >
             <Text style={styles.refreshText}>{visibleOrders.length} pending</Text>
           </TouchableOpacity>
         </View>
@@ -390,7 +489,7 @@ export default function FindOrdersScreen() {
 
       <WebView
         ref={webRef}
-        source={{ html: buildMapHTML(TOMTOM_KEY, coords.lat, coords.lng, visibleOrders, radiusKm) }}
+        source={{ html: buildMapHTML(TOMTOM_KEY, coords!.lat, coords!.lng, visibleOrders, radiusKm) }}
         style={styles.map}
         originWhitelist={['*']}
         javaScriptEnabled
@@ -406,8 +505,11 @@ const styles = StyleSheet.create({
   safe:        { flex: 1, backgroundColor: '#fff' },
   center:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
   loadingText: { marginTop: 12, fontSize: 15, color: '#888' },
-  header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#E4EAE4', backgroundColor: '#fff' },
-  title:       { fontSize: 22, fontWeight: '700', color: '#1A1A1A' },
+  header:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#E4EAE4', backgroundColor: '#fff' },
+  headerLeft:       { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  title:            { fontSize: 22, fontWeight: '700', color: '#1A1A1A' },
+  vehicleBadge:     { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: PRIMARY + '14', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
+  vehicleBadgeText: { fontSize: 12, color: PRIMARY, fontWeight: '600' },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
   refreshBtn:  { backgroundColor: '#EEF2EE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   refreshText: { fontSize: 13, color: PRIMARY, fontWeight: '600' },
@@ -423,4 +525,10 @@ const styles = StyleSheet.create({
 
   locationBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FEF3C7', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#FDE68A' },
   locationBannerText: { fontSize: 12, color: '#92400E', fontWeight: '500', flex: 1 },
+
+  gateContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40, gap: 12 },
+  gateTitle:     { fontSize: 20, fontWeight: '700', color: '#1A1A1A', textAlign: 'center' },
+  gateSub:       { fontSize: 14, color: '#888', textAlign: 'center', lineHeight: 20 },
+  gateBtn:       { marginTop: 8, backgroundColor: PRIMARY, paddingHorizontal: 28, paddingVertical: 13, borderRadius: 12 },
+  gateBtnText:   { color: '#fff', fontSize: 15, fontWeight: '700' },
 });
