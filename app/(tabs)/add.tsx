@@ -176,10 +176,11 @@ function StepHeader({ title, onBack, step }: { title: string; onBack: () => void
 
 // ── Vehicle Horizontal Scroller ───────────────────────────────────────────────
 function VehiclePicker({
-  selected, onSelect,
+  selected, onSelect, pricingData,
 }: {
   selected: VehicleId | '';
   onSelect: (id: VehicleId) => void;
+  pricingData: Record<string, number>;
 }) {
   return (
     <ScrollView
@@ -209,7 +210,7 @@ function VehiclePicker({
             <Text style={sx.vCap}>{v.capacity}</Text>
             <View style={sx.vMeta}>
               <Text style={[sx.vEta, active && { color: C.primaryLt }]}>{v.eta}</Text>
-              <Text style={[sx.vPrice, active && { color: C.primary }]}>₱{v.basePrice}</Text>
+              <Text style={[sx.vPrice, active && { color: C.primary }]}>₱{pricingData[v.id] ?? v.basePrice}</Text>
             </View>
             {active && <View style={sx.vActiveBar} />}
           </TouchableOpacity>
@@ -314,6 +315,7 @@ export default function AddScreen() {
   const [step, setStep]           = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [estimatedPrice, setEstimatedPrice] = useState<number | null>(null);
+  const [pricingData, setPricingData] = useState<Record<string, number>>({});
   const addOnAnim = useRef(new Animated.Value(0)).current;
 
   const blankForm = (): OrderForm => ({
@@ -332,12 +334,32 @@ export default function AddScreen() {
   const set = <K extends keyof OrderForm>(key: K, val: OrderForm[K]) =>
     setForm(prev => ({ ...prev, [key]: val }));
 
+  // Fetch pricing config from Supabase
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from('PRICING_CONFIG')
+        .select('VEHICLE_TYPE, BASE_FARE');
+      if (!error && data) {
+        const pricing: Record<string, number> = {};
+        data.forEach(row => {
+          pricing[row.VEHICLE_TYPE] = row.BASE_FARE;
+        });
+        setPricingData(pricing);
+      }
+    })();
+  }, []);
+
   const handleBack = () => {
     if (step === 1) router.replace('/(tabs)');
     else setStep(s => s - 1);
   };
 
   const selectedVehicle = VEHICLES.find(v => v.id === form.vehicleType);
+
+  const getBasePrice = (vehicleId: VehicleId): number => {
+    return pricingData[vehicleId] ?? VEHICLES.find(v => v.id === vehicleId)?.basePrice ?? 0;
+  };
 
   function selectVehicle(id: VehicleId) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -366,21 +388,55 @@ export default function AddScreen() {
     form.recipientName.trim().length > 0 &&
     form.contactNumber.trim().length > 6;
 
-  // Fetch quote
+  // Fetch quote with traffic-aware pricing from TomTom
   useEffect(() => {
     const valid = form.pickup.lat != null && form.dropoff.lat != null && form.vehicleType !== '';
     if (!valid) { setEstimatedPrice(null); return; }
     let mounted = true;
     (async () => {
-      const { data } = await supabase.rpc('get_delivery_quote', {
-        p_vehicle_type: form.vehicleType,
-        p_pickup_lat:   form.pickup.lat,
-        p_pickup_lng:   form.pickup.lng,
-        p_dropoff_lat:  form.dropoff.lat,
-        p_dropoff_lng:  form.dropoff.lng,
-      });
-      if (!mounted) return;
-      setEstimatedPrice(data != null ? Number(data) : null);
+      try {
+        const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://pjvsgahzacdeymijhzoq.supabase.co';
+        const response = await fetch(`${supabaseUrl}/functions/v1/get-delivery-quote-tomtom`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pickupLat: form.pickup.lat,
+            pickupLng: form.pickup.lng,
+            dropoffLat: form.dropoff.lat,
+            dropoffLng: form.dropoff.lng,
+            vehicleType: form.vehicleType,
+          }),
+        });
+
+        if (!mounted) return;
+
+        if (!response.ok) {
+          // Fall back to old RPC method if Edge Function fails
+          const { data } = await supabase.rpc('get_delivery_quote', {
+            p_vehicle_type: form.vehicleType,
+            p_pickup_lat:   form.pickup.lat,
+            p_pickup_lng:   form.pickup.lng,
+            p_dropoff_lat:  form.dropoff.lat,
+            p_dropoff_lng:  form.dropoff.lng,
+          });
+          setEstimatedPrice(data != null ? Number(data) : null);
+          return;
+        }
+
+        const result = await response.json();
+        setEstimatedPrice(result.estimatedPrice);
+      } catch (error) {
+        console.error('Error fetching delivery quote:', error);
+        // Fall back to old RPC method on error
+        const { data } = await supabase.rpc('get_delivery_quote', {
+          p_vehicle_type: form.vehicleType,
+          p_pickup_lat:   form.pickup.lat,
+          p_pickup_lng:   form.pickup.lng,
+          p_dropoff_lat:  form.dropoff.lat,
+          p_dropoff_lng:  form.dropoff.lng,
+        });
+        if (mounted) setEstimatedPrice(data != null ? Number(data) : null);
+      }
     })();
     return () => { mounted = false; };
   }, [form.pickup.lat, form.pickup.lng, form.dropoff.lat, form.dropoff.lng, form.vehicleType]);
@@ -456,7 +512,7 @@ export default function AddScreen() {
 
         {/* Vehicle */}
         <SectionLabel title="Select Vehicle" note={`${VEHICLES.length} types`} />
-        <VehiclePicker selected={form.vehicleType} onSelect={selectVehicle} />
+        <VehiclePicker selected={form.vehicleType} onSelect={selectVehicle} pricingData={pricingData} />
 
         {/* Add-ons (animated) */}
         {form.vehicleType !== '' && (
@@ -480,7 +536,7 @@ export default function AddScreen() {
         {form.vehicleType !== '' && (
           <View style={{ marginTop: 20 }}>
             <PriceBanner
-              estimatedPrice={estimatedPrice ?? selectedVehicle?.basePrice ?? null}
+              estimatedPrice={estimatedPrice ?? (form.vehicleType ? getBasePrice(form.vehicleType as VehicleId) : null)}
               addOns={form.addOns}
               vehicleEta={selectedVehicle?.eta}
             />
@@ -515,7 +571,7 @@ export default function AddScreen() {
         showsVerticalScrollIndicator={false}
       >
         <PriceBanner
-          estimatedPrice={estimatedPrice ?? selectedVehicle?.basePrice ?? null}
+          estimatedPrice={estimatedPrice ?? (form.vehicleType ? getBasePrice(form.vehicleType as VehicleId) : null)}
           addOns={form.addOns}
           vehicleEta={selectedVehicle?.eta}
         />
@@ -611,7 +667,7 @@ export default function AddScreen() {
         showsVerticalScrollIndicator={false}
       >
         <PriceBanner
-          estimatedPrice={estimatedPrice ?? selectedVehicle?.basePrice ?? null}
+          estimatedPrice={estimatedPrice ?? (form.vehicleType ? getBasePrice(form.vehicleType as VehicleId) : null)}
           addOns={form.addOns}
           vehicleEta={selectedVehicle?.eta}
         />
