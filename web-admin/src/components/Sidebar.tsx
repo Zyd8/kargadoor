@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import {
-  LayoutDashboard, Users, Package, Truck, Car, DollarSign, LogOut, ShieldCheck,
+  LayoutDashboard, Users, Package, Truck, Car, DollarSign, LogOut, ShieldCheck, Settings,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
@@ -13,6 +13,7 @@ const navItems = [
   { to: '/drivers', label: 'Driver Approval', icon: ShieldCheck },
   { to: '/vehicles', label: 'Vehicle Approval', icon: Car },
   { to: '/pricing', label: 'Pricing Config', icon: DollarSign },
+  { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
 export function Sidebar() {

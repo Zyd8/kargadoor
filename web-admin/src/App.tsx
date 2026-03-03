@@ -8,6 +8,7 @@ import Orders from '@/pages/Orders'
 import Drivers from '@/pages/Drivers'
 import Vehicles from '@/pages/Vehicles'
 import Pricing from '@/pages/Pricing'
+import Settings from '@/pages/Settings'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAdmin, loading } = useAuth()
@@ -43,6 +44,7 @@ function AppRoutes() {
         <Route path="drivers" element={<Drivers />} />
         <Route path="vehicles" element={<Vehicles />} />
         <Route path="pricing" element={<Pricing />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

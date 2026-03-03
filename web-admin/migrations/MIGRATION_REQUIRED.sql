@@ -57,6 +57,7 @@ ALTER TABLE "PRICING_CONFIG" ENABLE ROW LEVEL SECURITY;
 
 -- Allow admins (service role) full access — already bypassed by service key
 -- Allow anon read for the mobile app to fetch prices
+DROP POLICY IF EXISTS "pricing_config_read" ON "PRICING_CONFIG";
 CREATE POLICY "pricing_config_read" ON "PRICING_CONFIG"
   FOR SELECT USING (true);
 
@@ -120,8 +121,34 @@ $$;
 --   )
 
 -- ─────────────────────────────────────────────────────────────
+-- 6. APP CONFIG TABLE
+--    Generic key-value store for runtime app settings.
+--    Used by the admin panel (write) and mobile app (read).
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS "APP_CONFIG" (
+  "KEY"         text PRIMARY KEY,
+  "VALUE"       text NOT NULL,
+  "DESCRIPTION" text,
+  "UPDATED_AT"  timestamptz DEFAULT now()
+);
+
+-- Seed default delivery radius (100 meters)
+INSERT INTO "APP_CONFIG" ("KEY", "VALUE", "DESCRIPTION") VALUES
+  ('delivery_radius_meters', '100', 'Radius in meters within which a driver can mark a delivery as complete')
+ON CONFLICT ("KEY") DO NOTHING;
+
+-- Enable RLS
+ALTER TABLE "APP_CONFIG" ENABLE ROW LEVEL SECURITY;
+
+-- Allow anyone to read (mobile app needs this)
+DROP POLICY IF EXISTS "app_config_read" ON "APP_CONFIG";
+CREATE POLICY "app_config_read" ON "APP_CONFIG"
+  FOR SELECT USING (true);
+
+-- ─────────────────────────────────────────────────────────────
 -- DONE. Verify by running:
 --   SELECT * FROM "PRICING_CONFIG";
+--   SELECT * FROM "APP_CONFIG";
 --   SELECT "ID", "FULL_NAME", "IS_APPROVED" FROM "PROFILE" WHERE "ROLE" = 'DRIVER';
 --   SELECT "ID", "PLATE", "IS_APPROVED" FROM "VEHICLE";
 -- ─────────────────────────────────────────────────────────────
