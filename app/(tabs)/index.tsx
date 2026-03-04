@@ -2,7 +2,7 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import Constants from 'expo-constants';
 import { Image } from 'expo-image';
 import { useFocusEffect, router } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, useEffect } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -225,13 +225,20 @@ function BookingForm() {
   const [dropoff,      setDropoff]      = useState('');
   const [selected,     setSelected]     = useState<string | null>(null);
   const [activeAddOns, setActiveAddOns] = useState<Set<string>>(new Set());
+  const [pricingData,  setPricingData]  = useState<Record<string, number>>({});
   const addOnAnim = useRef(new Animated.Value(0)).current;
 
   const selectedVehicle = VEHICLES.find(v => v.id === selected);
   const canBook = pickup.trim().length > 0 && dropoff.trim().length > 0 && selected !== null;
 
   const addOnTotal = ADD_ONS.filter(a => activeAddOns.has(a.id)).reduce((s, a) => s + a.price, 0);
-  const totalPrice = (selectedVehicle?.basePrice ?? 0) + addOnTotal;
+
+  const getBasePrice = (vehicleId: string | null) => {
+    if (!vehicleId) return 0;
+    return pricingData[vehicleId] ?? VEHICLES.find(v => v.id === vehicleId)?.basePrice ?? 0;
+  };
+
+  const totalPrice = getBasePrice(selectedVehicle?.id ?? null) + addOnTotal;
 
   function selectVehicle(id: string) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -245,6 +252,22 @@ function BookingForm() {
       tension: 60,
     }).start();
   }
+
+  // fetch pricing configuration from Supabase once on mount
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from('PRICING_CONFIG')
+        .select('VEHICLE_TYPE, BASE_FARE');
+      if (!error && data) {
+        const pricing: Record<string, number> = {};
+        data.forEach((row: any) => {
+          pricing[row.VEHICLE_TYPE] = row.BASE_FARE;
+        });
+        setPricingData(pricing);
+      }
+    })();
+  }, []);
 
   function toggleAddOn(id: string) {
     const next = new Set(activeAddOns);
@@ -332,7 +355,7 @@ function BookingForm() {
 
               <View style={sx.vMeta}>
                 <Text style={[sx.vEta, active && { color: C.primaryLt }]}>{v.eta}</Text>
-                <Text style={[sx.vPrice, active && { color: C.primary }]}>₱{v.basePrice}</Text>
+                <Text style={[sx.vPrice, active && { color: C.primary }]}>₱{pricingData[v.id] ?? v.basePrice}</Text>
               </View>
 
               {/* Active bottom bar */}
@@ -371,7 +394,7 @@ function BookingForm() {
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
               <Text style={sx.fareValue}>₱{totalPrice}</Text>
               {addOnTotal > 0 && (
-                <Text style={sx.fareBreakdown}>base ₱{selectedVehicle?.basePrice} + ₱{addOnTotal}</Text>
+                <Text style={sx.fareBreakdown}>base ₱{getBasePrice(selectedVehicle?.id ?? null)} + ₱{addOnTotal}</Text>
               )}
             </View>
           </View>
