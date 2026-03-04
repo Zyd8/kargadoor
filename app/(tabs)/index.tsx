@@ -5,9 +5,12 @@ import { useFocusEffect, router } from 'expo-router';
 import { useCallback, useRef, useState, useEffect } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
+  KeyboardAvoidingView,
   LayoutAnimation,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -19,6 +22,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import LocationPicker, { LocationValue } from '@/components/location-picker';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 
@@ -78,6 +82,18 @@ type AddOn = {
   label: string; desc: string; price: number;
   color: string; bgColor: string;
 };
+
+const EMPTY_LOC: LocationValue = { address: '', lat: null, lng: null };
+
+const ITEM_TYPES = [
+  'Food and Beverages',
+  'Appliances / Furniture',
+  'Office Items / Documents',
+  'Construction Materials',
+  'Clothing and Accessories',
+  'Electronics and Gadgets',
+  'Others',
+];
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 const VEHICLES: VehicleOption[] = [
@@ -221,15 +237,33 @@ function AddOnPanel({
 
 // ── Booking Form ──────────────────────────────────────────────────────────────
 function BookingForm() {
-  const [pickup,       setPickup]       = useState('');
-  const [dropoff,      setDropoff]      = useState('');
+  const { user } = useAuth();
+
+  const [pickup,       setPickup]       = useState<LocationValue>(EMPTY_LOC);
+  const [dropoff,      setDropoff]      = useState<LocationValue>(EMPTY_LOC);
   const [selected,     setSelected]     = useState<string | null>(null);
   const [activeAddOns, setActiveAddOns] = useState<Set<string>>(new Set());
   const [pricingData,  setPricingData]  = useState<Record<string, number>>({});
+  const [estimatedPrice, setEstimatedPrice] = useState<number | null>(null);
+
+  const [recipientName, setRecipientName] = useState('');
+  const [contactNumber, setContactNumber] = useState(
+    ((user as any)?.user_metadata?.phone_number as string) ?? ''
+  );
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'gcash'>('cash');
+  const [itemType,      setItemType]      = useState('');
+  const [notes,         setNotes]         = useState('');
+
+  const [detailsVisible, setDetailsVisible] = useState(false);
+  const [submitting,     setSubmitting]     = useState(false);
+
   const addOnAnim = useRef(new Animated.Value(0)).current;
 
   const selectedVehicle = VEHICLES.find(v => v.id === selected);
-  const canBook = pickup.trim().length > 0 && dropoff.trim().length > 0 && selected !== null;
+  const canContinue =
+    pickup.address.trim().length > 0 &&
+    dropoff.address.trim().length > 0 &&
+    selected !== null;
 
   const addOnTotal = ADD_ONS.filter(a => activeAddOns.has(a.id)).reduce((s, a) => s + a.price, 0);
 
@@ -239,6 +273,10 @@ function BookingForm() {
   };
 
   const totalPrice = getBasePrice(selectedVehicle?.id ?? null) + addOnTotal;
+  const finalEstimated =
+    estimatedPrice != null
+      ? estimatedPrice + addOnTotal
+      : totalPrice;
 
   function selectVehicle(id: string) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -275,6 +313,144 @@ function BookingForm() {
     setActiveAddOns(next);
   }
 
+  const detailsValid =
+    recipientName.trim().length > 0 &&
+    contactNumber.trim().length > 6;
+
+  // fetch delivery quote (TomTom edge function with RPC fallback)
+  useEffect(() => {
+    const valid =
+      pickup.lat != null &&
+      pickup.lng != null &&
+      dropoff.lat != null &&
+      dropoff.lng != null &&
+      selected !== null;
+
+    if (!valid) {
+      setEstimatedPrice(null);
+      return;
+    }
+
+    let mounted = true;
+    (async () => {
+      try {
+        const supabaseUrl =
+          process.env.EXPO_PUBLIC_SUPABASE_URL ||
+          'https://pjvsgahzacdeymijhzoq.supabase.co';
+
+        const response = await fetch(
+          `${supabaseUrl}/functions/v1/get-delivery-quote-tomtom`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              pickupLat: pickup.lat,
+              pickupLng: pickup.lng,
+              dropoffLat: dropoff.lat,
+              dropoffLng: dropoff.lng,
+              vehicleType: selected,
+            }),
+          }
+        );
+
+        if (!mounted) return;
+
+        if (!response.ok) {
+          const { data } = await supabase.rpc('get_delivery_quote', {
+            p_vehicle_type: selected,
+            p_pickup_lat:   pickup.lat,
+            p_pickup_lng:   pickup.lng,
+            p_dropoff_lat:  dropoff.lat,
+            p_dropoff_lng:  dropoff.lng,
+          });
+          setEstimatedPrice(data != null ? Number(data) : null);
+          return;
+        }
+
+        const result = await response.json();
+        setEstimatedPrice(result.estimatedPrice);
+      } catch (error) {
+        console.error('Error fetching delivery quote:', error);
+        const { data } = await supabase.rpc('get_delivery_quote', {
+          p_vehicle_type: selected,
+          p_pickup_lat:   pickup.lat,
+          p_pickup_lng:   pickup.lng,
+          p_dropoff_lat:  dropoff.lat,
+          p_dropoff_lng:  dropoff.lng,
+        });
+        if (mounted) setEstimatedPrice(data != null ? Number(data) : null);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, selected]);
+
+  const handleSubmit = async () => {
+    if (!user) {
+      Alert.alert('Not logged in', 'Please sign in to place an order.');
+      return;
+    }
+
+    if (!selected || !pickup.lat || !pickup.lng || !dropoff.lat || !dropoff.lng) {
+      Alert.alert('Missing details', 'Please complete pickup, drop-off, and vehicle selection.');
+      return;
+    }
+
+    if (!detailsValid) {
+      Alert.alert('Missing details', 'Please provide recipient name and a valid contact number.');
+      return;
+    }
+
+    setSubmitting(true);
+    const { error } = await supabase.rpc('insert_package', {
+      p_sender_id:        user.id,
+      p_pickup_address:   pickup.address.trim(),
+      p_pickup_lat:       pickup.lat,
+      p_pickup_lng:       pickup.lng,
+      p_recipient_address: dropoff.address.trim(),
+      p_dropoff_lat:      dropoff.lat,
+      p_dropoff_lng:      dropoff.lng,
+      p_recipient_name:   recipientName.trim(),
+      p_recipient_number: contactNumber.trim(),
+      p_order_contact:    contactNumber.trim(),
+      p_vehicle_type:     selected,
+      p_payment_method:   paymentMethod,
+      p_item_types:       itemType || 'Others',
+      p_notes:            notes.trim() || null,
+      p_status:           'PENDING',
+    });
+    setSubmitting(false);
+
+    if (error) {
+      Alert.alert('Failed to place order', error.message);
+      return;
+    }
+
+    Alert.alert('Order placed!', 'Your delivery request is now pending.', [
+      {
+        text: 'View Orders',
+        onPress: () => {
+          setPickup(EMPTY_LOC);
+          setDropoff(EMPTY_LOC);
+          setSelected(null);
+          setActiveAddOns(new Set());
+          setRecipientName('');
+          setContactNumber(
+            ((user as any)?.user_metadata?.phone_number as string) ?? ''
+          );
+          setPaymentMethod('cash');
+          setItemType('');
+          setNotes('');
+          setEstimatedPrice(null);
+          setDetailsVisible(false);
+          router.replace('/(tabs)/orders');
+        },
+      },
+    ]);
+  };
+
   return (
     <View style={sx.bookingCard}>
 
@@ -282,22 +458,24 @@ function BookingForm() {
       <View style={sx.routeWrap}>
         <View style={sx.inputRow}>
           <View style={[sx.routeDot, { backgroundColor: C.accent }]} />
-          <TextInput
-            style={sx.routeInput}
-            placeholder="Where to pick up?"
-            placeholderTextColor={C.inkSoft}
-            value={pickup}
-            onChangeText={setPickup}
-          />
-          <TouchableOpacity style={sx.locBtn} activeOpacity={0.7}>
-            <MaterialIcons name="my-location" size={17} color={C.primaryMid} />
-          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <LocationPicker
+              placeholder="Pickup location"
+              value={pickup}
+              onChange={setPickup}
+              showCurrentLocation
+            />
+          </View>
         </View>
         <View style={sx.routeSep}>
           <View style={sx.routeSepLine} />
           <TouchableOpacity
             style={sx.swapBtn}
-            onPress={() => { const t = pickup; setPickup(dropoff); setDropoff(t); }}
+            onPress={() => {
+              const t = pickup;
+              setPickup(dropoff);
+              setDropoff(t);
+            }}
             activeOpacity={0.8}
           >
             <MaterialIcons name="swap-vert" size={15} color={C.primaryMid} />
@@ -306,13 +484,13 @@ function BookingForm() {
         </View>
         <View style={sx.inputRow}>
           <View style={[sx.routeDot, { backgroundColor: C.danger }]} />
-          <TextInput
-            style={sx.routeInput}
-            placeholder="Where to drop off?"
-            placeholderTextColor={C.inkSoft}
-            value={dropoff}
-            onChangeText={setDropoff}
-          />
+          <View style={{ flex: 1 }}>
+            <LocationPicker
+              placeholder="Drop-off destination"
+              value={dropoff}
+              onChange={setDropoff}
+            />
+          </View>
         </View>
       </View>
 
@@ -392,7 +570,9 @@ function BookingForm() {
           <View>
             <Text style={sx.fareLabel}>Estimated Fare</Text>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
-              <Text style={sx.fareValue}>₱{totalPrice}</Text>
+              <Text style={sx.fareValue}>
+                ₱{finalEstimated.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+              </Text>
               {addOnTotal > 0 && (
                 <Text style={sx.fareBreakdown}>base ₱{getBasePrice(selectedVehicle?.id ?? null)} + ₱{addOnTotal}</Text>
               )}
@@ -407,21 +587,195 @@ function BookingForm() {
 
       {/* Book button */}
       <TouchableOpacity
-        style={[sx.bookBtn, !canBook && sx.bookBtnOff]}
-        activeOpacity={canBook ? 0.85 : 1}
-        onPress={() => canBook && router.navigate('/(tabs)/add')}
+        style={[sx.bookBtn, !canContinue && sx.bookBtnOff]}
+        activeOpacity={canContinue ? 0.85 : 1}
+        onPress={() => canContinue && setDetailsVisible(true)}
       >
         <Text style={sx.bookBtnText}>
-          {canBook
+          {canContinue
             ? `Book ${selectedVehicle?.label}`
-            : !pickup || !dropoff ? 'Enter pickup & drop-off' : 'Select a vehicle'}
+            : !pickup.address || !dropoff.address ? 'Enter pickup & drop-off' : 'Select a vehicle'}
         </Text>
-        {canBook && (
+        {canContinue && (
           <View style={sx.bookBtnArrow}>
             <MaterialIcons name="arrow-forward" size={15} color={C.primary} />
           </View>
         )}
       </TouchableOpacity>
+
+      {/* Details modal for recipient, payment, item type, notes, and final confirmation */}
+      <Modal
+        visible={detailsVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => !submitting && setDetailsVisible(false)}
+      >
+        <View style={sx.modalBackdrop}>
+          <KeyboardAvoidingView
+            style={sx.modalSheet}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <View style={sx.modalCard}>
+              <View style={sx.modalHeaderRow}>
+                <Text style={sx.modalTitle}>Trip Details</Text>
+                <TouchableOpacity
+                  onPress={() => !submitting && setDetailsVisible(false)}
+                  hitSlop={12}
+                >
+                  <MaterialIcons name="close" size={22} color={C.inkSoft} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                style={sx.modalScroll}
+                contentContainerStyle={sx.modalScrollContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                {selectedVehicle && (
+                  <View style={sx.modalVehicleRow}>
+                    <Text style={sx.modalVehicleEmoji}>{selectedVehicle.emoji}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={sx.modalVehicleLabel}>{selectedVehicle.label}</Text>
+                      <Text style={sx.modalVehicleSub}>
+                        {selectedVehicle.capacity} · {selectedVehicle.eta}
+                      </Text>
+                    </View>
+                    <View style={sx.modalFarePill}>
+                      <Text style={sx.modalFarePillText}>
+                        ₱{finalEstimated.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                <View style={sx.modalSection}>
+                  <Text style={sx.modalSectionLabel}>Recipient</Text>
+                  <View style={sx.modalInputRow}>
+                    <MaterialIcons name="person" size={18} color={C.inkSoft} style={{ marginRight: 8 }} />
+                    <TextInput
+                      style={sx.modalTextInput}
+                      placeholder="Recipient name"
+                      placeholderTextColor={C.inkSoft}
+                      value={recipientName}
+                      onChangeText={setRecipientName}
+                    />
+                  </View>
+
+                  <View style={sx.modalInputRow}>
+                    <MaterialIcons name="phone" size={18} color={C.inkSoft} style={{ marginRight: 8 }} />
+                    <TextInput
+                      style={sx.modalTextInput}
+                      placeholder="Contact number"
+                      placeholderTextColor={C.inkSoft}
+                      keyboardType="phone-pad"
+                      value={contactNumber}
+                      onChangeText={setContactNumber}
+                    />
+                  </View>
+                </View>
+
+                <View style={sx.modalSection}>
+                  <Text style={sx.modalSectionLabel}>Payment Method</Text>
+                  <View style={sx.chipRow}>
+                    {(['cash', 'gcash'] as const).map(method => {
+                      const active = paymentMethod === method;
+                      return (
+                        <TouchableOpacity
+                          key={method}
+                          style={[sx.payChip, active && sx.payChipActive]}
+                          onPress={() => setPaymentMethod(method)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={[sx.payChipIcon, active && sx.payChipIconActive]}>
+                            <MaterialIcons
+                              name={method === 'cash' ? 'payments' : 'account-balance-wallet'}
+                              size={20}
+                              color={active ? '#fff' : C.inkMid}
+                            />
+                          </View>
+                          <Text style={[sx.payChipLabel, active && sx.payChipLabelActive]}>
+                            {method === 'cash' ? 'Cash' : 'GCash'}
+                          </Text>
+                          {active && (
+                            <View style={sx.payChipCheck}>
+                              <MaterialIcons name="check" size={11} color={C.primary} />
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={sx.modalSection}>
+                  <Text style={sx.modalSectionLabel}>Type of Item</Text>
+                  <View style={sx.itemTypeGrid}>
+                    {ITEM_TYPES.map(type => {
+                      const active = itemType === type;
+                      return (
+                        <TouchableOpacity
+                          key={type}
+                          style={[sx.itemTypeChip, active && sx.itemTypeChipActive]}
+                          onPress={() => setItemType(type)}
+                          activeOpacity={0.8}
+                        >
+                          {active && (
+                            <MaterialIcons
+                              name="check"
+                              size={13}
+                              color={C.primary}
+                              style={{ marginRight: 4 }}
+                            />
+                          )}
+                          <Text style={[sx.itemTypeText, active && sx.itemTypeTextActive]}>
+                            {type}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={sx.modalSection}>
+                  <Text style={sx.modalSectionLabel}>Notes (optional)</Text>
+                  <View style={[sx.modalInputRow, { alignItems: 'flex-start' }]}>
+                    <MaterialIcons name="notes" size={18} color={C.inkSoft} style={{ marginRight: 8, marginTop: 8 }} />
+                    <TextInput
+                      style={[sx.modalTextInput, { height: 80, textAlignVertical: 'top' }]}
+                      placeholder="Any special instructions?"
+                      placeholderTextColor={C.inkSoft}
+                      multiline
+                      value={notes}
+                      onChangeText={setNotes}
+                    />
+                  </View>
+                </View>
+              </ScrollView>
+
+              <View style={sx.modalFooter}>
+                <TouchableOpacity
+                  style={[sx.modalPrimaryBtn, (!detailsValid || submitting) && sx.modalPrimaryBtnOff]}
+                  disabled={!detailsValid || submitting}
+                  activeOpacity={0.85}
+                  onPress={handleSubmit}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <Text style={sx.modalPrimaryBtnText}>Place Order</Text>
+                      <View style={sx.modalPrimaryBtnArrow}>
+                        <MaterialIcons name="check" size={16} color={C.primary} />
+                      </View>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -923,4 +1277,128 @@ const sx = StyleSheet.create({
   emptyDelivSub:  { fontSize: 12, color: C.inkSoft, marginTop: 4, marginBottom: 18, textAlign: 'center' },
   findBtn:        { backgroundColor: C.accentDim, borderRadius: 12, paddingVertical: 11, paddingHorizontal: 22, borderWidth: 1, borderColor: C.accent + '55' },
   findBtnTxt:     { fontSize: 13, fontWeight: '700', color: C.primaryMid },
+
+  // ── modal (inline booking details)
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: C.surface,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 20,
+    maxHeight: '92%',
+  },
+  modalScroll: { marginTop: 4 },
+  modalScrollContent: { paddingBottom: 16 },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalTitle: { fontSize: 17, fontWeight: '800', color: C.ink },
+
+  modalVehicleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.surfaceAlt,
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 12,
+  },
+  modalVehicleEmoji: { fontSize: 26, marginRight: 8 },
+  modalVehicleLabel: { fontSize: 14, fontWeight: '700', color: C.ink },
+  modalVehicleSub:   { fontSize: 11, color: C.inkSoft, marginTop: 2 },
+  modalFarePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: C.accentDim,
+    borderRadius: 999,
+  },
+  modalFarePillText: { fontSize: 12, fontWeight: '700', color: C.primary },
+
+  modalSection: { marginTop: 16 },
+  modalSectionLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: C.inkMid,
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+    marginBottom: 8,
+  },
+  modalInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.surfaceAlt,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  modalTextInput: { flex: 1, fontSize: 14, color: C.ink, fontWeight: '500' },
+
+  // reuse chips + item type styles from add screen
+  chipRow:   { flexDirection: 'row', gap: 12 },
+  payChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.surfaceAlt,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    padding: 12,
+    gap: 10,
+  },
+  payChipActive:     { borderColor: C.accent, backgroundColor: C.accentDim },
+  payChipIcon:       { width: 36, height: 36, borderRadius: 10, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' },
+  payChipIconActive: { backgroundColor: C.primary },
+  payChipLabel:      { flex: 1, fontSize: 14, fontWeight: '600', color: C.inkMid },
+  payChipLabelActive:{ color: C.primary },
+  payChipCheck:      { width: 20, height: 20, borderRadius: 10, backgroundColor: C.accentDim, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.accent },
+
+  itemTypeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
+  itemTypeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    backgroundColor: C.surfaceAlt,
+  },
+  itemTypeChipActive: { backgroundColor: C.accentDim, borderColor: C.accent },
+  itemTypeText:       { fontSize: 12, fontWeight: '600', color: C.inkMid },
+  itemTypeTextActive: { color: C.primary },
+
+  modalFooter: { marginTop: 18 },
+  modalPrimaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: C.primary,
+    borderRadius: 14,
+    height: 50,
+  },
+  modalPrimaryBtnOff: { backgroundColor: C.inkSoft },
+  modalPrimaryBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  modalPrimaryBtnArrow: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: C.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
