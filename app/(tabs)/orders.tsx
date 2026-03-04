@@ -202,8 +202,8 @@ function OrderDetailModal({
   const trackingUrl = `${APP_SCHEME}://track/${item.TRACKING_TOKEN}`;
 
   const handleShareTrackingLink = async () => {
-    // Mock URL format for sharing
-    const shareUrl = `https://track.example.com/${item.TRACKING_TOKEN}`;
+    // Full tracking URL
+    const shareUrl = `https://track.example.com/track/${item.TRACKING_TOKEN}`;
     
     try {
       // Use React Native's built-in Share
