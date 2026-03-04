@@ -209,6 +209,26 @@ export default function Orders() {
                   <p>{selected.driver.FULL_NAME ?? '—'} · {selected.driver.PHONE_NUMBER ?? '—'}</p>
                 </div>
               )}
+              {selected.TRACKING_TOKEN && selected.STATUS === 'IN_PROGRESS' && (
+                <div className="border-t pt-3 mt-3">
+                  <p className="text-xs text-muted-foreground mb-1">Tracking Token</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-mono bg-muted px-2 py-1 rounded flex-1 truncate">
+                      {selected.TRACKING_TOKEN}
+                    </p>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(selected.TRACKING_TOKEN || '')
+                        toast({ title: 'Copied!', description: 'Tracking token copied to clipboard' })
+                      }}
+                    >
+                      Copy
+                    </Button>
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3 border-t pt-3">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Item Type</p>

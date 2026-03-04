@@ -37,6 +37,7 @@ export interface Package {
   PICKUP_LNG: number | null
   DROPOFF_LAT: number | null
   DROPOFF_LNG: number | null
+  TRACKING_TOKEN: string | null
   // Joined
   sender?: Profile | null
   driver?: Profile | null

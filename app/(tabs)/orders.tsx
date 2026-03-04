@@ -1,5 +1,7 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import Constants from 'expo-constants';
+import * as Linking from 'expo-linking';
+import { Share } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
@@ -51,6 +53,7 @@ type Package = {
   PICKUP_POD: string | null;
   DRIVER_AVATAR_URL: string | null;
   DRIVER_NAME: string | null;
+  TRACKING_TOKEN: string | null;
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -194,6 +197,31 @@ function OrderDetailModal({
     } catch { return s; }
   };
 
+  // Generate tracking URL using mock format
+  const APP_SCHEME = Constants.expoConfig?.scheme ?? 'frontend';
+  const trackingUrl = `${APP_SCHEME}://track/${item.TRACKING_TOKEN}`;
+
+  const handleShareTrackingLink = async () => {
+    // Mock URL format for sharing
+    const shareUrl = `https://track.example.com/${item.TRACKING_TOKEN}`;
+    
+    try {
+      // Use React Native's built-in Share
+      await Share.share({
+        title: 'Track Your Order',
+        message: `Track your delivery here: ${shareUrl}`,
+        url: shareUrl,
+      });
+    } catch (error) {
+      // Fallback to opening URL
+      try {
+        await Linking.openURL(shareUrl);
+      } catch {
+        await Linking.openURL(trackingUrl);
+      }
+    }
+  };
+
   return (
     <Modal visible animationType="slide" transparent>
       <View style={styles.modalOverlay}>
@@ -233,6 +261,23 @@ function OrderDetailModal({
             <DetailRow label="Created" value={formatDate(item.CREATED_AT)} />
             {item.ACCEPTED_AT ? <DetailRow label="Accepted" value={formatDate(item.ACCEPTED_AT)} /> : null}
             {item.COMPLETED_AT ? <DetailRow label="Completed" value={formatDate(item.COMPLETED_AT)} /> : null}
+
+            {/* Tracking Link Section - Only show for IN_PROGRESS orders */}
+            {(item.TRACKING_TOKEN && item.STATUS === 'IN_PROGRESS') && (
+              <View style={styles.trackingLinkSection}>
+                <Text style={styles.trackingLinkLabel}>Tracking Token</Text>
+                <Text style={styles.trackingLinkSubtext}>
+                  Share this token with the recipient to track their order
+                </Text>
+                <TouchableOpacity
+                  style={styles.shareTrackingBtn}
+                  onPress={handleShareTrackingLink}
+                >
+                  <MaterialIcons name="share" size={18} color={PRIMARY} />
+                  <Text style={styles.shareTrackingBtnText}>Open Tracking</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             {!isDriver && item.STATUS === 'PENDING' && (
               <TouchableOpacity
@@ -283,19 +328,40 @@ export default function OrdersScreen() {
 
   const fetchOrders = useCallback(async () => {
     if (!user) { setOrders([]); setLoading(false); setRefreshing(false); return; }
-    const { data, error: fetchErr } = await supabase.rpc('get_my_orders', {
-      p_user_id: user.id,
-      p_is_driver: isDriver,
-    });
-    if (fetchErr) {
-      setError(fetchErr.message);
-      setLoading(false);
-      setRefreshing(false);
-      return;
+    
+    // For drivers, use the RPC
+    if (isDriver) {
+      const { data, error: fetchErr } = await supabase.rpc('get_my_orders', {
+        p_user_id: user.id,
+        p_is_driver: isDriver,
+      });
+      if (fetchErr) {
+        setError(fetchErr.message);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+      setError(null);
+      const list = Array.isArray(data) ? (data as Package[]) : [];
+      setOrders(list);
+    } else {
+      // For regular users, use direct select to ensure TRACKING_TOKEN is included
+      const { data, error: fetchErr } = await supabase
+        .from('PACKAGES')
+        .select('*')
+        .eq('SENDER_ID', user.id)
+        .order('CREATED_AT', { ascending: false });
+      
+      if (fetchErr) {
+        setError(fetchErr.message);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+      setError(null);
+      const list = Array.isArray(data) ? (data as Package[]) : [];
+      setOrders(list);
     }
-    setError(null);
-    const list = Array.isArray(data) ? (data as Package[]) : [];
-    setOrders(list);
     setLoading(false);
     setRefreshing(false);
   }, [user?.id, isDriver]);
@@ -442,7 +508,7 @@ const styles = StyleSheet.create({
     elevation: 2,
     overflow: 'hidden',
   },
-  thumbnailWrap:  { height: 72, width: '100%', marginHorizontal: -14, marginTop: -14, marginBottom: 10, backgroundColor: '#E8EDE8' },
+  thumbnailWrap:  { height: 72, width: '100%', marginBottom: 10, backgroundColor: '#E8EDE8', borderTopLeftRadius: 14, borderTopRightRadius: 14, overflow: 'hidden' },
   thumbnailMap:   { flex: 1, height: 72 },
   cardTop:      { flexDirection: 'row', alignItems: 'center' },
   vehicleCircle:{ width: 42, height: 42, borderRadius: 10, backgroundColor: '#EEF2EE', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
@@ -473,11 +539,11 @@ const styles = StyleSheet.create({
   emptySubtitle:{ fontSize: 14, color: '#888', textAlign: 'center', paddingHorizontal: 40 },
 
   modalOverlay:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  modalContent:    { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%' },
+  modalContent:    { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%' },
   modalHeader:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#E8E8E8' },
   modalTitle:      { fontSize: 20, fontWeight: '700', color: '#1A1A1A' },
   modalClose:      { padding: 4 },
-  modalScroll:     { maxHeight: 400 },
+  modalScroll:     { maxHeight: 500 },
   modalScrollContent: { paddingHorizontal: 20, paddingVertical: 16, paddingBottom: 24 },
   detailRow:       { marginBottom: 14 },
   detailLabel:     { fontSize: 11, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
@@ -494,4 +560,11 @@ const styles = StyleSheet.create({
   driverAvatarFallback:{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#EEF2EE', alignItems: 'center', justifyContent: 'center' },
   driverLabel:         { fontSize: 11, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.5 },
   driverName:          { fontSize: 15, fontWeight: '700', color: '#1A1A1A', marginTop: 2 },
+
+  // Tracking link section
+  trackingLinkSection: { backgroundColor: '#F0F6F3', borderRadius: 12, padding: 16, marginTop: 16 },
+  trackingLinkLabel:   { fontSize: 13, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },
+  trackingLinkSubtext: { fontSize: 12, color: '#666', marginBottom: 12 },
+  shareTrackingBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 10, paddingVertical: 12, borderWidth: 1, borderColor: PRIMARY },
+  shareTrackingBtnText:{ fontSize: 14, fontWeight: '600', color: PRIMARY },
 });
