@@ -27,6 +27,13 @@ ALTER TABLE "VEHICLE"
 UPDATE "VEHICLE" SET "IS_APPROVED" = true WHERE "IS_APPROVED" = false;
 
 -- ─────────────────────────────────────────────────────────────
+-- 2b. VEHICLE PLATE OPTIONAL
+--     Allow PLATE to be NULL so drivers can register without a plate.
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "VEHICLE"
+  ALTER COLUMN "PLATE" DROP NOT NULL;
+
+-- ─────────────────────────────────────────────────────────────
 -- 3. PRICING CONFIG TABLE
 --    Stores configurable base fare + per-km rate per vehicle type.
 --    The admin panel reads/writes this table.

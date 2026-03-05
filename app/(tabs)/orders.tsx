@@ -345,13 +345,13 @@ export default function OrdersScreen() {
       const list = Array.isArray(data) ? (data as Package[]) : [];
       setOrders(list);
     } else {
-      // For regular users, use direct select to ensure TRACKING_TOKEN is included
+      // For regular users: select all + join driver profile so we can show driver avatar and name
       const { data, error: fetchErr } = await supabase
         .from('PACKAGES')
-        .select('*')
+        .select('*, driver:DRIVER_ID(ID, FULL_NAME, AVATAR_URL)')
         .eq('SENDER_ID', user.id)
         .order('CREATED_AT', { ascending: false });
-      
+
       if (fetchErr) {
         setError(fetchErr.message);
         setLoading(false);
@@ -359,7 +359,12 @@ export default function OrdersScreen() {
         return;
       }
       setError(null);
-      const list = Array.isArray(data) ? (data as Package[]) : [];
+      type Row = Package & { driver?: { FULL_NAME?: string; AVATAR_URL?: string } | null };
+      const list = (Array.isArray(data) ? data : []).map((row: Row) => ({
+        ...row,
+        DRIVER_NAME: row.driver?.FULL_NAME ?? (row as Package).DRIVER_NAME ?? null,
+        DRIVER_AVATAR_URL: row.driver?.AVATAR_URL ?? (row as Package).DRIVER_AVATAR_URL ?? null,
+      })) as Package[];
       setOrders(list);
     }
     setLoading(false);

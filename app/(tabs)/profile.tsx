@@ -166,11 +166,10 @@ function VehicleSection({ userId }: { userId: string }) {
   };
 
   const handleAddVehicle = async () => {
-    if (!plate.trim()) { Alert.alert('Required', 'Plate number is required.'); return; }
     setSaving(true);
     const { data, error } = await supabase.rpc('upsert_vehicle', {
       p_driver_id: userId,
-      p_plate: plate.trim().toUpperCase(),
+      p_plate: plate.trim() ? plate.trim().toUpperCase() : null,
       p_model: model.trim() || null,
       p_type: type,
       p_vehicle_id: null,
@@ -270,7 +269,7 @@ function VehicleSection({ userId }: { userId: string }) {
           <Text style={styles.addFormTitle}>New Vehicle</Text>
 
           <Text style={styles.fieldLabel}>Vehicle Type</Text>
-          <View style={styles.typeRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeRowScroll} contentContainerStyle={styles.typeRow}>
             {vehicleTypes.map((t) => (
               <TouchableOpacity
                 key={t}
@@ -284,9 +283,9 @@ function VehicleSection({ userId }: { userId: string }) {
                 </Text>
               </TouchableOpacity>
             ))}
-          </View>
+          </ScrollView>
 
-          <Text style={styles.fieldLabel}>Plate Number *</Text>
+          <Text style={styles.fieldLabel}>Plate Number (optional)</Text>
           <TextInput
             style={styles.input}
             value={plate}
@@ -331,8 +330,8 @@ function VehicleSection({ userId }: { userId: string }) {
           style={styles.addVehicleBtn}
           onPress={() => {
             setAddingNew(true);
-            if (vehicleTypes.length && !vehicleTypes.includes(type)) {
-              setType(vehicleTypes[0]);
+            if (vehicleTypes.length) {
+              setType(vehicleTypes.includes(type) ? type : vehicleTypes[0]);
             }
           }}
           activeOpacity={0.7}
@@ -416,7 +415,7 @@ export default function ProfileScreen() {
       </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         {/* Avatar + identity */}
         <View style={styles.avatarRow}>
@@ -538,7 +537,8 @@ const styles = StyleSheet.create({
   fieldLabel: { fontSize: 12, fontWeight: '600', color: '#888', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   input:      { backgroundColor: '#F7F7F7', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#1A1A1A', borderWidth: 1, borderColor: '#E8E8E8', marginBottom: 14 },
 
-  typeRow:            { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  typeRowScroll:      { marginBottom: 16 },
+  typeRow:            { flexDirection: 'row', gap: 8 },
   typePill:           { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: '#F0F0F0', borderWidth: 1, borderColor: 'transparent' },
   typePillActive:     { backgroundColor: PRIMARY, borderColor: PRIMARY },
   typePillText:       { fontSize: 13, color: '#888', fontWeight: '500' },
