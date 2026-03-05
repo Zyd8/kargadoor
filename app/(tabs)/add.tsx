@@ -21,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import LocationPicker, { LocationValue } from '@/components/location-picker';
 import { useAuth } from '@/contexts/auth-context';
+import { getBackendVehicleType, BACKEND_TO_APP_VEHICLES, type PricingRow } from '@/lib/pricing';
 import { supabase } from '@/lib/supabase';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -180,7 +181,7 @@ function VehiclePicker({
 }: {
   selected: VehicleId | '';
   onSelect: (id: VehicleId) => void;
-  pricingData: Record<string, number>;
+  pricingData: Record<string, PricingRow>;
 }) {
   return (
     <ScrollView
@@ -210,7 +211,7 @@ function VehiclePicker({
             <Text style={sx.vCap}>{v.capacity}</Text>
             <View style={sx.vMeta}>
               <Text style={[sx.vEta, active && { color: C.primaryLt }]}>{v.eta}</Text>
-              <Text style={[sx.vPrice, active && { color: C.primary }]}>₱{pricingData[v.id] ?? v.basePrice}</Text>
+              <Text style={[sx.vPrice, active && { color: C.primary }]}>₱{pricingData[v.id]?.baseFare ?? v.basePrice}</Text>
             </View>
             {active && <View style={sx.vActiveBar} />}
           </TouchableOpacity>
@@ -334,18 +335,24 @@ export default function AddScreen() {
   const set = <K extends keyof OrderForm>(key: K, val: OrderForm[K]) =>
     setForm(prev => ({ ...prev, [key]: val }));
 
-  // Fetch pricing config from Supabase
+  // Fetch pricing config from Supabase (base_fare + per_km_rate per vehicle_type)
   useEffect(() => {
     (async () => {
       const { data, error } = await supabase
         .from('PRICING_CONFIG')
-        .select('VEHICLE_TYPE, BASE_FARE');
+        .select('VEHICLE_TYPE, BASE_FARE, PER_KM_RATE');
       if (!error && data) {
-        const pricing: Record<string, number> = {};
-        data.forEach(row => {
-          pricing[row.VEHICLE_TYPE] = row.BASE_FARE;
+        const byAppId: Record<string, PricingRow> = {};
+        data.forEach((row: { VEHICLE_TYPE: string; BASE_FARE: number; PER_KM_RATE: number }) => {
+          const backendType = row.VEHICLE_TYPE?.trim();
+          const baseFare = Number(row.BASE_FARE) || 0;
+          const perKmRate = Number(row.PER_KM_RATE) || 0;
+          const appIds = BACKEND_TO_APP_VEHICLES[backendType] ?? (backendType ? [backendType] : []);
+          appIds.forEach((appId) => {
+            byAppId[appId] = { baseFare, perKmRate };
+          });
         });
-        setPricingData(pricing);
+        setPricingData(byAppId);
       }
     })();
   }, []);
@@ -444,6 +451,7 @@ export default function AddScreen() {
   const handleSubmit = async () => {
     if (!user) { Alert.alert('Not logged in', 'Please sign in to place an order.'); return; }
     setSubmitting(true);
+    const backendVehicleType = getBackendVehicleType(form.vehicleType) ?? form.vehicleType;
     const { error } = await supabase.rpc('insert_package', {
       p_sender_id:       user.id,
       p_pickup_address:  form.pickup.address.trim(),
@@ -455,7 +463,7 @@ export default function AddScreen() {
       p_recipient_name:  form.recipientName.trim(),
       p_recipient_number:form.contactNumber.trim(),
       p_order_contact:   form.contactNumber.trim(),
-      p_vehicle_type:    form.vehicleType,
+      p_vehicle_type:    backendVehicleType,
       p_payment_method:  form.paymentMethod,
       p_item_types:      form.itemType || 'Others',
       p_notes:           form.notes.trim() || null,

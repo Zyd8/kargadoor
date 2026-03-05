@@ -24,6 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import LocationPicker, { LocationValue } from '@/components/location-picker';
 import { useAuth } from '@/contexts/auth-context';
+import { getBackendVehicleType, BACKEND_TO_APP_VEHICLES, type PricingRow } from '@/lib/pricing';
 import { supabase } from '@/lib/supabase';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -243,7 +244,7 @@ function BookingForm() {
   const [dropoff,      setDropoff]      = useState<LocationValue>(EMPTY_LOC);
   const [selected,     setSelected]     = useState<string | null>(null);
   const [activeAddOns, setActiveAddOns] = useState<Set<string>>(new Set());
-  const [pricingData,  setPricingData]  = useState<Record<string, number>>({});
+  const [pricingData,  setPricingData]  = useState<Record<string, PricingRow>>({});
   const [estimatedPrice, setEstimatedPrice] = useState<number | null>(null);
 
   const [recipientName, setRecipientName] = useState('');
@@ -269,7 +270,7 @@ function BookingForm() {
 
   const getBasePrice = (vehicleId: string | null) => {
     if (!vehicleId) return 0;
-    return pricingData[vehicleId] ?? VEHICLES.find(v => v.id === vehicleId)?.basePrice ?? 0;
+    return pricingData[vehicleId]?.baseFare ?? VEHICLES.find(v => v.id === vehicleId)?.basePrice ?? 0;
   };
 
   const totalPrice = getBasePrice(selectedVehicle?.id ?? null) + addOnTotal;
@@ -291,18 +292,24 @@ function BookingForm() {
     }).start();
   }
 
-  // fetch pricing configuration from Supabase once on mount
+  // fetch pricing configuration from Supabase (base_fare + per_km_rate per vehicle_type)
   useEffect(() => {
     (async () => {
       const { data, error } = await supabase
         .from('PRICING_CONFIG')
-        .select('VEHICLE_TYPE, BASE_FARE');
+        .select('VEHICLE_TYPE, BASE_FARE, PER_KM_RATE');
       if (!error && data) {
-        const pricing: Record<string, number> = {};
-        data.forEach((row: any) => {
-          pricing[row.VEHICLE_TYPE] = row.BASE_FARE;
+        const byAppId: Record<string, PricingRow> = {};
+        data.forEach((row: { VEHICLE_TYPE: string; BASE_FARE: number; PER_KM_RATE: number }) => {
+          const backendType = row.VEHICLE_TYPE?.trim();
+          const baseFare = Number(row.BASE_FARE) || 0;
+          const perKmRate = Number(row.PER_KM_RATE) || 0;
+          const appIds = BACKEND_TO_APP_VEHICLES[backendType] ?? (backendType ? [backendType] : []);
+          appIds.forEach((appId) => {
+            byAppId[appId] = { baseFare, perKmRate };
+          });
         });
-        setPricingData(pricing);
+        setPricingData(byAppId);
       }
     })();
   }, []);
@@ -338,6 +345,7 @@ function BookingForm() {
           process.env.EXPO_PUBLIC_SUPABASE_URL ||
           'https://pjvsgahzacdeymijhzoq.supabase.co';
 
+        const backendVehicleType = getBackendVehicleType(selected) ?? selected;
         const response = await fetch(
           `${supabaseUrl}/functions/v1/get-delivery-quote-tomtom`,
           {
@@ -348,7 +356,7 @@ function BookingForm() {
               pickupLng: pickup.lng,
               dropoffLat: dropoff.lat,
               dropoffLng: dropoff.lng,
-              vehicleType: selected,
+              vehicleType: backendVehicleType,
             }),
           }
         );
@@ -357,7 +365,7 @@ function BookingForm() {
 
         if (!response.ok) {
           const { data } = await supabase.rpc('get_delivery_quote', {
-            p_vehicle_type: selected,
+            p_vehicle_type: backendVehicleType,
             p_pickup_lat:   pickup.lat,
             p_pickup_lng:   pickup.lng,
             p_dropoff_lat:  dropoff.lat,
@@ -371,8 +379,9 @@ function BookingForm() {
         setEstimatedPrice(result.estimatedPrice);
       } catch (error) {
         console.error('Error fetching delivery quote:', error);
+        const backendVehicleType = getBackendVehicleType(selected) ?? selected;
         const { data } = await supabase.rpc('get_delivery_quote', {
-          p_vehicle_type: selected,
+          p_vehicle_type: backendVehicleType,
           p_pickup_lat:   pickup.lat,
           p_pickup_lng:   pickup.lng,
           p_dropoff_lat:  dropoff.lat,
@@ -404,6 +413,7 @@ function BookingForm() {
     }
 
     setSubmitting(true);
+    const backendVehicleType = getBackendVehicleType(selected) ?? selected;
     const { error } = await supabase.rpc('insert_package', {
       p_sender_id:        user.id,
       p_pickup_address:   pickup.address.trim(),
@@ -415,7 +425,7 @@ function BookingForm() {
       p_recipient_name:   recipientName.trim(),
       p_recipient_number: contactNumber.trim(),
       p_order_contact:    contactNumber.trim(),
-      p_vehicle_type:     selected,
+      p_vehicle_type:     backendVehicleType,
       p_payment_method:   paymentMethod,
       p_item_types:       itemType || 'Others',
       p_notes:            notes.trim() || null,
@@ -533,7 +543,7 @@ function BookingForm() {
 
               <View style={sx.vMeta}>
                 <Text style={[sx.vEta, active && { color: C.primaryLt }]}>{v.eta}</Text>
-                <Text style={[sx.vPrice, active && { color: C.primary }]}>₱{pricingData[v.id] ?? v.basePrice}</Text>
+                <Text style={[sx.vPrice, active && { color: C.primary }]}>₱{pricingData[v.id]?.baseFare ?? v.basePrice}</Text>
               </View>
 
               {/* Active bottom bar */}
