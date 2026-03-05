@@ -1028,7 +1028,7 @@ export default function HomeScreen() {
         {/* Top bar */}
         <View style={sx.topBar}>
           <View style={sx.logo}>
-            <View style={sx.logoIcon}><MaterialIcons name="local-shipping" size={15} color="#fff" /></View>
+            <Image source={require('../../assets/images/kargadoor_logo.png')} style={sx.logoImg} contentFit="contain" />
             <Text style={sx.logoTxt}>KARGADOOR</Text>
           </View>
           <View style={sx.topRight}>
@@ -1067,7 +1067,7 @@ const sx = StyleSheet.create({
   // ── top bar
   topBar:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, paddingTop: 4 },
   logo:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  logoIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  logoImg:  { width: 32, height: 32 },
   logoTxt:  { fontSize: 14, fontWeight: '800', color: C.ink, letterSpacing: 2.2 },
   topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   iconBtn:  { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', position: 'relative' },

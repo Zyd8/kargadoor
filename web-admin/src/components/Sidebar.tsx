@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import {
-  LayoutDashboard, Users, Package, Truck, Car, DollarSign, LogOut, ShieldCheck, Settings,
+  LayoutDashboard, Users, Package, Car, DollarSign, LogOut, ShieldCheck, Settings,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
@@ -23,9 +23,7 @@ export function Sidebar() {
     <aside className="flex h-screen w-60 flex-col border-r bg-card">
       {/* Brand */}
       <div className="flex items-center gap-2 border-b px-6 py-5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-          <Truck className="h-5 w-5 text-primary-foreground" />
-        </div>
+        <img src="/kargadoor_logo.png" alt="Kargadoor" className="h-8 w-auto max-w-[32px] object-contain" />
         <div>
           <p className="text-sm font-bold leading-none">Logistics</p>
           <p className="text-xs text-muted-foreground">Admin Panel</p>

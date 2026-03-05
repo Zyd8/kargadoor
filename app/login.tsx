@@ -1,4 +1,5 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { Image } from 'expo-image';
 import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -45,12 +46,10 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.root}>
-      {/* Green header — stays fixed when keyboard opens */}
+      {/* Brand header — stays fixed when keyboard opens */}
       <View style={[styles.header, { paddingTop: insets.top + 28 }]}>
-        <View style={styles.logoCircle}>
-            <MaterialIcons name="local-shipping" size={44} color="#fff" />
-        </View>
-        <Text style={styles.brandName}>KARGADOOR</Text>
+        <Image source={require('../assets/images/kargadoor_white_logo.png')} style={styles.logoImg} contentFit="contain" />
+        
         <Text style={styles.brandTagline}>Logistics made simple</Text>
       </View>
 
@@ -137,10 +136,10 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   root:         { flex: 1, backgroundColor: PRIMARY },
-  header:       { alignItems: 'center', paddingHorizontal: 24, paddingBottom: 32 },
-  logoCircle:   { width: 84, height: 84, borderRadius: 42, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  header:       { alignItems: 'center', paddingHorizontal: 24, paddingBottom: 52 },
+  logoImg:      { width: 280, height: 280, marginBottom: -24 },
   brandName:    { fontSize: 26, fontWeight: '800', color: '#fff', letterSpacing: 3, marginBottom: 4 },
-  brandTagline: { fontSize: 13, color: 'rgba(255,255,255,0.65)' },
+  brandTagline: { fontSize: 16, color: '#fff' },
   kav:          { flex: 1 },
   card:         { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32 },
   cardInner:    { flexGrow: 1, paddingHorizontal: 28, paddingTop: 32 },

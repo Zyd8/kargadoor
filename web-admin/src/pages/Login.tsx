@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
-import { Truck, KeyRound } from 'lucide-react'
+import { KeyRound } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,12 +29,12 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="space-y-1 text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-            <Truck className="h-6 w-6 text-primary-foreground" />
+          <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center">
+            <img src="/kargadoor_logo.png" alt="Kargadoor" className="h-12 w-auto max-w-[120px] object-contain" />
           </div>
           <CardTitle className="text-2xl">Admin Login</CardTitle>
           <CardDescription>
-            Sign in with your admin account or hardcoded credentials
+            Sign in with your admin account
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -72,12 +72,7 @@ export default function Login() {
             </Button>
           </form>
 
-          <div className="mt-4 flex items-start gap-2 rounded-md bg-muted/60 px-3 py-2.5 text-xs text-muted-foreground">
-            <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>
-              Use the hardcoded credentials from <code className="font-mono">.env.local</code>, or a Supabase account with <code className="font-mono">ROLE=admin</code>.
-            </span>
-          </div>
+          
         </CardContent>
       </Card>
     </div>
