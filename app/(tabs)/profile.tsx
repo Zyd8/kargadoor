@@ -13,6 +13,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -54,7 +55,7 @@ function base64ToBytes(base64: string): Uint8Array {
 }
 
 // ── Multi-vehicle section ────────────────────────────────────────────────────
-function VehicleSection({ userId }: { userId: string }) {
+function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; horizontalPadding?: number }) {
   const [vehicles, setVehicles]   = useState<VehicleRow[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<string[]>(DEFAULT_VEHICLE_TYPES);
   const [loading, setLoading]     = useState(true);
@@ -190,14 +191,14 @@ function VehicleSection({ userId }: { userId: string }) {
 
   if (loading) {
     return (
-      <View style={styles.sectionCard}>
+      <View style={[styles.sectionCard, { marginHorizontal: horizontalPadding }]}>
         <ActivityIndicator color={PRIMARY} />
       </View>
     );
   }
 
   return (
-    <View style={styles.sectionCard}>
+    <View style={[styles.sectionCard, { marginHorizontal: horizontalPadding }]}>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>My Vehicles</Text>
       </View>
@@ -238,13 +239,13 @@ function VehicleSection({ userId }: { userId: string }) {
             </View>
 
             {/* Info */}
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.vehicleType, v.IS_ACTIVE && { color: PRIMARY }]}>
+            <View style={styles.vehicleInfo}>
+              <Text style={[styles.vehicleType, v.IS_ACTIVE && { color: PRIMARY }]} numberOfLines={1}>
                 {(v.TYPE ?? 'Vehicle').charAt(0).toUpperCase() + (v.TYPE ?? 'vehicle').slice(1)}
                 {v.IS_ACTIVE ? '  ·  Active' : ''}
               </Text>
-              <Text style={styles.vehiclePlate}>{v.PLATE ?? '—'}</Text>
-              {v.MODEL ? <Text style={styles.vehicleModel}>{v.MODEL}</Text> : null}
+              <Text style={styles.vehiclePlate} numberOfLines={1}>{v.PLATE ?? '—'}</Text>
+              {v.MODEL ? <Text style={styles.vehicleModel} numberOfLines={1}>{v.MODEL}</Text> : null}
             </View>
 
             {/* Delete */}
@@ -270,7 +271,7 @@ function VehicleSection({ userId }: { userId: string }) {
           <Text style={styles.addFormTitle}>New Vehicle</Text>
 
           <Text style={styles.fieldLabel}>Vehicle Type</Text>
-          <View style={styles.typeRow}>
+          <View style={styles.typeRowWrap}>
             {vehicleTypes.map((t) => (
               <TouchableOpacity
                 key={t}
@@ -346,9 +347,16 @@ function VehicleSection({ userId }: { userId: string }) {
 }
 
 // ── Main screen ──────────────────────────────────────────────────────────────
+const MAX_CONTENT_WIDTH = 480;
+
 export default function ProfileScreen() {
+  const { width } = useWindowDimensions();
   const { user, signOut, debugBypass, setDebugBypass, userRole } = useAuth();
   const isDriver = userRole === 'DRIVER';
+
+  const padH = Math.max(16, Math.min(24, width * 0.055));
+  const contentWidth = Math.min(width, MAX_CONTENT_WIDTH);
+  const contentPadH = width > MAX_CONTENT_WIDTH ? Math.max(padH, (width - contentWidth) / 2) : padH;
 
   const [fullName, setFullName]   = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -411,12 +419,15 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingHorizontal: contentPadH }]}>
         <Text style={styles.title}>Profile</Text>
       </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingHorizontal: contentPadH, paddingBottom: 40 }]}
+        showsVerticalScrollIndicator={false}
+      >
 
         {/* Avatar + identity */}
         <View style={styles.avatarRow}>
@@ -442,8 +453,10 @@ export default function ProfileScreen() {
             </View>
           </TouchableOpacity>
 
-          {fullName ? <Text style={styles.fullName}>{fullName}</Text> : null}
-          <Text style={styles.email}>
+          {fullName ? (
+            <Text style={styles.fullName} numberOfLines={1} ellipsizeMode="tail">{fullName}</Text>
+          ) : null}
+          <Text style={styles.email} numberOfLines={1} ellipsizeMode="tail">
             {debugBypass ? 'Using without account' : (user?.email ?? '—')}
           </Text>
           {!debugBypass && (
@@ -458,7 +471,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* Vehicle section (DRIVER only) */}
-        {isDriver && user && <VehicleSection userId={user.id} />}
+        {isDriver && user && <VehicleSection userId={user.id} horizontalPadding={0} />}
 
         {/* Actions */}
         {debugBypass && (
@@ -486,7 +499,7 @@ const styles = StyleSheet.create({
   safe:   { flex: 1, backgroundColor: '#F8F6F2' },
   header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#EDE6DC', backgroundColor: '#fff' },
   title:  { fontSize: 26, fontWeight: '700', color: '#1A1A1A' },
-  scroll: { paddingBottom: 40 },
+  scroll: { paddingBottom: 40, flexGrow: 1 },
 
   avatarRow:   { alignItems: 'center', marginTop: 36, marginBottom: 24, paddingHorizontal: 20 },
   avatarWrap:  { position: 'relative', marginBottom: 14 },
@@ -519,6 +532,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FAFAFA', marginBottom: 10,
   },
   vehicleRowActive: { borderColor: PRIMARY, backgroundColor: '#FFF8ED' },
+  vehicleInfo: { flex: 1, minWidth: 0 },
 
   radio:     { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#CCC', alignItems: 'center', justifyContent: 'center' },
   radioActive:{ borderColor: PRIMARY },
@@ -539,6 +553,7 @@ const styles = StyleSheet.create({
   input:      { backgroundColor: '#F7F7F7', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#1A1A1A', borderWidth: 1, borderColor: '#E8E8E8', marginBottom: 14 },
 
   typeRow:            { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  typeRowWrap:        { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   typePill:           { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: '#F0F0F0', borderWidth: 1, borderColor: 'transparent' },
   typePillActive:     { backgroundColor: PRIMARY, borderColor: PRIMARY },
   typePillText:       { fontSize: 13, color: '#888', fontWeight: '500' },
@@ -550,8 +565,8 @@ const styles = StyleSheet.create({
   saveBtn:      { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: PRIMARY, alignItems: 'center' },
   saveBtnText:  { fontSize: 14, color: '#fff', fontWeight: '700' },
 
-  useWithAccountBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 20, marginBottom: 12, padding: 16, backgroundColor: '#FEF5E6', borderRadius: 14, justifyContent: 'center', borderWidth: 1, borderColor: PRIMARY },
+  useWithAccountBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, padding: 16, backgroundColor: '#FEF5E6', borderRadius: 14, justifyContent: 'center', borderWidth: 1, borderColor: PRIMARY },
   useWithAccountText:{ color: PRIMARY, fontSize: 15, fontWeight: '700' },
-  signOutBtn:   { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: PRIMARY, marginHorizontal: 20, borderRadius: 14, padding: 16, justifyContent: 'center' },
+  signOutBtn:   { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: PRIMARY, borderRadius: 14, padding: 16, justifyContent: 'center' },
   signOutText:  { color: '#fff', fontSize: 15, fontWeight: '700' },
 });
