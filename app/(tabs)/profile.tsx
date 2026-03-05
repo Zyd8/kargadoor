@@ -31,11 +31,19 @@ type VehicleRow = {
   IS_ACTIVE: boolean;
 };
 
-const VEHICLE_TYPES = ['motorcycle', 'car', 'truck'] as const;
+// Fallback when PRICING_CONFIG is not loaded yet
+const DEFAULT_VEHICLE_TYPES = ['motorcycle', 'car', 'truck'];
+
 const VEHICLE_ICON: Record<string, React.ComponentProps<typeof MaterialIcons>['name']> = {
+  bike: 'directions-bike',
   motorcycle: 'two-wheeler',
-  car:        'directions-car',
-  truck:      'local-shipping',
+  car: 'directions-car',
+  mpv: 'airport-shuttle',
+  van: 'airport-shuttle',
+  l300: 'local-shipping',
+  'small truck': 'local-shipping',
+  'large truck': 'local-shipping',
+  truck: 'local-shipping',
 };
 
 function base64ToBytes(base64: string): Uint8Array {
@@ -48,6 +56,7 @@ function base64ToBytes(base64: string): Uint8Array {
 // ── Multi-vehicle section ────────────────────────────────────────────────────
 function VehicleSection({ userId }: { userId: string }) {
   const [vehicles, setVehicles]   = useState<VehicleRow[]>([]);
+  const [vehicleTypes, setVehicleTypes] = useState<string[]>(DEFAULT_VEHICLE_TYPES);
   const [loading, setLoading]     = useState(true);
   const [addingNew, setAddingNew] = useState(false);
   const [saving, setSaving]       = useState(false);
@@ -58,6 +67,23 @@ function VehicleSection({ userId }: { userId: string }) {
   const [plate, setPlate] = useState('');
   const [model, setModel] = useState('');
   const [type, setType]   = useState<string>('motorcycle');
+
+  // Fetch vehicle types from PRICING_CONFIG so driver can only choose types that exist in DB
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from('PRICING_CONFIG')
+        .select('VEHICLE_TYPE')
+        .order('VEHICLE_TYPE');
+      if (!error && data?.length) {
+        const types = data.map((r: { VEHICLE_TYPE: string }) => r.VEHICLE_TYPE.trim()).filter(Boolean);
+        setVehicleTypes(types);
+        if (types.length && !types.includes(type)) {
+          setType(types[0]);
+        }
+      }
+    })();
+  }, []);
 
   const fetchVehicles = async () => {
     const { data } = await supabase.rpc('get_vehicles', { p_driver_id: userId });
@@ -245,14 +271,14 @@ function VehicleSection({ userId }: { userId: string }) {
 
           <Text style={styles.fieldLabel}>Vehicle Type</Text>
           <View style={styles.typeRow}>
-            {VEHICLE_TYPES.map((t) => (
+            {vehicleTypes.map((t) => (
               <TouchableOpacity
                 key={t}
                 style={[styles.typePill, type === t && styles.typePillActive]}
                 onPress={() => setType(t)}
                 activeOpacity={0.7}
               >
-                <MaterialIcons name={VEHICLE_ICON[t]} size={16} color={type === t ? '#fff' : '#888'} />
+                <MaterialIcons name={VEHICLE_ICON[t] ?? 'directions-car'} size={16} color={type === t ? '#fff' : '#888'} />
                 <Text style={[styles.typePillText, type === t && styles.typePillTextActive]}>
                   {t.charAt(0).toUpperCase() + t.slice(1)}
                 </Text>
@@ -282,7 +308,7 @@ function VehicleSection({ userId }: { userId: string }) {
           <View style={styles.editActions}>
             <TouchableOpacity
               style={styles.cancelBtn}
-              onPress={() => { setAddingNew(false); setPlate(''); setModel(''); setType('motorcycle'); }}
+              onPress={() => { setAddingNew(false); setPlate(''); setModel(''); setType(vehicleTypes[0] ?? 'motorcycle'); }}
               activeOpacity={0.7}
             >
               <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -303,7 +329,12 @@ function VehicleSection({ userId }: { userId: string }) {
       ) : (
         <TouchableOpacity
           style={styles.addVehicleBtn}
-          onPress={() => setAddingNew(true)}
+          onPress={() => {
+            setAddingNew(true);
+            if (vehicleTypes.length && !vehicleTypes.includes(type)) {
+              setType(vehicleTypes[0]);
+            }
+          }}
           activeOpacity={0.7}
         >
           <MaterialIcons name="add" size={18} color={PRIMARY} />
