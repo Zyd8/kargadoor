@@ -28,7 +28,7 @@ import WebView from 'react-native-webview';
 
 import { supabase } from '@/lib/supabase';
 
-const PRIMARY     = '#1B6B4A';
+const PRIMARY     = '#f0a92d';
 const TOMTOM_KEY  = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
 const GEOFENCE_KM = 1;
 
@@ -134,8 +134,8 @@ function buildMapHTML(
   // ── Driver arrow ─────────────────────────────────────────────────────────
   var arrowHTML='<div id="user-arrow" style="width:36px;height:36px;transform:rotate(0deg);transition:transform 0.25s linear">'
     +'<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">'
-    +'<circle cx="18" cy="18" r="17" fill="#1B6B4A" fill-opacity="0.2"/>'
-    +'<polygon points="18,4 28,30 18,24 8,30" fill="#1B6B4A" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>'
+    +'<circle cx="18" cy="18" r="17" fill="#f0a92d" fill-opacity="0.2"/>'
+    +'<polygon points="18,4 28,30 18,24 8,30" fill="#f0a92d" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>'
     +'</svg></div>';
   var arrowEl=null;
   var driverMarker=L.marker([driverLat,driverLng],{
@@ -172,7 +172,7 @@ function buildMapHTML(
   window.drawRoute=function(pts){
     if(routeLine){map.removeLayer(routeLine);}
     if(!pts||pts.length===0)return;
-    routeLine=L.polyline(pts,{color:'#1B6B4A',weight:5,opacity:0.75,lineJoin:'round'}).addTo(map);
+    routeLine=L.polyline(pts,{color:'#f0a92d',weight:5,opacity:0.75,lineJoin:'round'}).addTo(map);
     map.fitBounds(routeLine.getBounds(),{padding:[60,60]});
   };
 
@@ -196,7 +196,7 @@ function buildMapHTML(
     driverMarker.setLatLng([lat,lng]);
     if(curPhase==='delivery'&&geofence){
       var inside=map.distance([lat,lng],[destLat,destLng])<=${GEOFENCE_KM*1000};
-      geofence.setStyle({color:inside?'#1B6B4A':'#EF4444',fillColor:inside?'#1B6B4A':'#EF4444'});
+      geofence.setStyle({color:inside?'#f0a92d':'#EF4444',fillColor:inside?'#f0a92d':'#EF4444'});
       window.ReactNativeWebView.postMessage(JSON.stringify({
         insideRadius:inside,
         distKm:map.distance([lat,lng],[destLat,destLng])/1000
@@ -567,7 +567,7 @@ const styles = StyleSheet.create({
     paddingTop: 52,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#E4EAE4',
+    borderBottomColor: '#EDE6DC',
     backgroundColor: '#fff',
   },
   topTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },
@@ -580,7 +580,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F59E0B',
   },
-  phasePillDelivery:     { backgroundColor: '#E8F5E9', borderColor: PRIMARY },
+  phasePillDelivery:     { backgroundColor: '#FEF5E6', borderColor: PRIMARY },
   phasePillText:         { fontSize: 11, fontWeight: '700', color: '#92400E' },
   phasePillTextDelivery: { color: PRIMARY },
 

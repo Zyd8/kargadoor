@@ -34,7 +34,7 @@ export function formatDateShort(dateStr: string | null | undefined): string {
 export const STATUS_COLORS: Record<string, string> = {
   PENDING: 'bg-amber-100 text-amber-800',
   IN_PROGRESS: 'bg-blue-100 text-blue-800',
-  COMPLETE: 'bg-green-100 text-green-800',
+  COMPLETE: 'bg-amber-100 text-amber-800',
   CANCELLED: 'bg-red-100 text-red-800',
 }
 

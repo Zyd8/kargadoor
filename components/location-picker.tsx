@@ -20,7 +20,7 @@ import {
 import LocationMapModal, { PickedLocation } from '@/components/location-map-modal';
 
 const TOMTOM_KEY = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
-const PRIMARY    = '#1B6B4A';
+const PRIMARY    = '#f0a92d';
 const PLACEHOLDER = '#A0A0A0';
 
 export type LocationValue = { address: string; lat: number | null; lng: number | null };
@@ -199,14 +199,14 @@ export default function LocationPicker({ placeholder, value, onChange, showCurre
 
 const styles = StyleSheet.create({
   wrapper:           { marginBottom: 12 },
-  inputRow:          { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, paddingHorizontal: 14, height: 52, borderWidth: 1, borderColor: '#E4EAE4' },
+  inputRow:          { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, paddingHorizontal: 14, height: 52, borderWidth: 1, borderColor: '#EDE6DC' },
   inputRowConfirmed: { borderColor: PRIMARY, borderWidth: 1.5 },
   inputIcon:         { marginRight: 10 },
   textInput:         { flex: 1, fontSize: 15, color: '#1A1A1A' },
   mapBtn:            { paddingLeft: 8 },
   gpsBtn:            { flexDirection: 'row', alignItems: 'center', paddingVertical: 7, paddingHorizontal: 4 },
   gpsBtnText:        { fontSize: 13, color: PRIMARY, fontWeight: '600' },
-  dropdown:          { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E4EAE4', overflow: 'hidden', marginTop: 2 },
+  dropdown:          { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#EDE6DC', overflow: 'hidden', marginTop: 2 },
   suggRow:           { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12 },
   suggRowBorder:     { borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
   suggText:          { flex: 1, fontSize: 14, color: '#333' },

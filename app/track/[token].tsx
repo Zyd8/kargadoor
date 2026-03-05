@@ -9,7 +9,7 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { supabase } from '@/lib/supabase';
 
 const TOMTOM_KEY = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
-const PRIMARY = '#1B6B4A';
+const PRIMARY = '#f0a92d';
 
 // Get the scheme from app.json - defaults to 'frontend'
 const APP_SCHEME = Constants.expoConfig?.scheme ?? 'frontend';
@@ -65,8 +65,8 @@ function buildMapHTML(
     driverMarkerJS = `
       var driverArrowHTML = '<div id="driver-arrow" style="width:36px;height:36px;transform:rotate(0deg);transition:transform 0.25s linear;">' +
         '<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">' +
-          '<circle cx="18" cy="18" r="17" fill="#1B6B4A" fill-opacity="0.2"/>' +
-          '<polygon points="18,4 28,30 18,24 8,30" fill="#1B6B4A" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>' +
+          '<circle cx="18" cy="18" r="17" fill="#f0a92d" fill-opacity="0.2"/>' +
+          '<polygon points="18,4 28,30 18,24 8,30" fill="#f0a92d" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>' +
         '</svg>' +
       '</div>';
       var driverMarker = L.marker([${driverLat}, ${driverLng}], {
@@ -108,7 +108,7 @@ function buildMapHTML(
 
     var pickupIcon = L.divIcon({
       className: '',
-      html: '<div style="width:24px;height:24px;background:#1B6B4A;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.3)"></div>',
+      html: '<div style="width:24px;height:24px;background:#f0a92d;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.3)"></div>',
       iconSize: [24, 24],
       iconAnchor: [12, 12]
     });
@@ -123,7 +123,7 @@ function buildMapHTML(
     L.marker([dropoffLat, dropoffLng], { icon: dropoffIcon }).addTo(map).bindPopup('Dropoff');
 
     var routeLine = L.polyline([[pickupLat, pickupLng], [dropoffLat, dropoffLng]], {
-      color: '#1B6B4A',
+      color: '#f0a92d',
       weight: 4,
       opacity: 0.7,
       dashArray: '10, 10'
@@ -138,8 +138,8 @@ function buildMapHTML(
       } else {
         var driverArrowHTML = '<div id="driver-arrow" style="width:36px;height:36px;transform:rotate(0deg);transition:transform 0.25s linear;">' +
           '<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">' +
-            '<circle cx="18" cy="18" r="17" fill="#1B6B4A" fill-opacity="0.2"/>' +
-            '<polygon points="18,4 28,30 18,24 8,30" fill="#1B6B4A" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>' +
+            '<circle cx="18" cy="18" r="17" fill="#f0a92d" fill-opacity="0.2"/>' +
+            '<polygon points="18,4 28,30 18,24 8,30" fill="#f0a92d" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>' +
           '</svg>' +
         '</div>';
         driverMarker = L.marker([lat, lng], {
@@ -403,7 +403,7 @@ export default function PublicTrackingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#EEF2EE',
+    backgroundColor: '#F8F6F2',
   },
   center: {
     flex: 1,
@@ -448,7 +448,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#E4EAE4',
+    borderBottomColor: '#EDE6DC',
   },
   backIcon: {
     padding: 4,
@@ -522,7 +522,7 @@ const styles = StyleSheet.create({
   locationConnector: {
     width: 2,
     height: 24,
-    backgroundColor: '#E4EAE4',
+    backgroundColor: '#EDE6DC',
     marginLeft: 5,
     marginVertical: 4,
   },

@@ -202,7 +202,7 @@ export default function Pricing() {
                       {hasTable && (
                         isEditing ? (
                           <div className="flex gap-1">
-                            <Button size="icon" variant="ghost" className="h-7 w-7 text-green-600" onClick={saveEdit} disabled={saving}>
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-primary" onClick={saveEdit} disabled={saving}>
                               <Check className="h-3.5 w-3.5" />
                             </Button>
                             <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={cancelEdit}>

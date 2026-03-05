@@ -20,7 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 
-const PRIMARY = '#1B6B4A';
+const PRIMARY = '#f0a92d';
 
 type VehicleRow = {
   ID: string;
@@ -483,8 +483,8 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe:   { flex: 1, backgroundColor: '#EEF2EE' },
-  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#E4EAE4', backgroundColor: '#fff' },
+  safe:   { flex: 1, backgroundColor: '#F8F6F2' },
+  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#EDE6DC', backgroundColor: '#fff' },
   title:  { fontSize: 26, fontWeight: '700', color: '#1A1A1A' },
   scroll: { paddingBottom: 40 },
 
@@ -496,11 +496,11 @@ const styles = StyleSheet.create({
     position: 'absolute', bottom: 0, right: 0,
     width: 26, height: 26, borderRadius: 13,
     backgroundColor: PRIMARY, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: '#EEF2EE',
+    borderWidth: 2, borderColor: '#F8F6F2',
   },
   fullName:   { fontSize: 20, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },
   email:      { fontSize: 14, color: '#888', fontWeight: '400' },
-  roleBadge:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#E8F5E9', borderRadius: 20, borderWidth: 1, borderColor: PRIMARY },
+  roleBadge:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#FEF5E6', borderRadius: 20, borderWidth: 1, borderColor: PRIMARY },
   roleText:   { fontSize: 13, color: PRIMARY, fontWeight: '700' },
   bypassBadge:{ fontSize: 12, color: '#888', marginTop: 4 },
 
@@ -518,13 +518,13 @@ const styles = StyleSheet.create({
     borderRadius: 12, borderWidth: 1, borderColor: '#E8E8E8',
     backgroundColor: '#FAFAFA', marginBottom: 10,
   },
-  vehicleRowActive: { borderColor: PRIMARY, backgroundColor: '#F0F9F4' },
+  vehicleRowActive: { borderColor: PRIMARY, backgroundColor: '#FFF8ED' },
 
   radio:     { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#CCC', alignItems: 'center', justifyContent: 'center' },
   radioActive:{ borderColor: PRIMARY },
   radioDot:  { width: 10, height: 10, borderRadius: 5, backgroundColor: PRIMARY },
 
-  vehicleIconCircle: { width: 42, height: 42, borderRadius: 10, backgroundColor: '#EEF2EE', alignItems: 'center', justifyContent: 'center' },
+  vehicleIconCircle: { width: 42, height: 42, borderRadius: 10, backgroundColor: '#FEF5E6', alignItems: 'center', justifyContent: 'center' },
   vehicleType:   { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
   vehiclePlate:  { fontSize: 13, color: PRIMARY, fontWeight: '600', marginTop: 2 },
   vehicleModel:  { fontSize: 12, color: '#888', marginTop: 2 },
@@ -550,7 +550,7 @@ const styles = StyleSheet.create({
   saveBtn:      { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: PRIMARY, alignItems: 'center' },
   saveBtnText:  { fontSize: 14, color: '#fff', fontWeight: '700' },
 
-  useWithAccountBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 20, marginBottom: 12, padding: 16, backgroundColor: '#E8F5E9', borderRadius: 14, justifyContent: 'center', borderWidth: 1, borderColor: PRIMARY },
+  useWithAccountBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 20, marginBottom: 12, padding: 16, backgroundColor: '#FEF5E6', borderRadius: 14, justifyContent: 'center', borderWidth: 1, borderColor: PRIMARY },
   useWithAccountText:{ color: PRIMARY, fontSize: 15, fontWeight: '700' },
   signOutBtn:   { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: PRIMARY, marginHorizontal: 20, borderRadius: 14, padding: 16, justifyContent: 'center' },
   signOutText:  { color: '#fff', fontSize: 15, fontWeight: '700' },

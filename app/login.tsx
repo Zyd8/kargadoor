@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/contexts/auth-context';
 
-const PRIMARY = '#1B6B4A';
+const PRIMARY = '#f0a92d';
 const PLACEHOLDER = '#A0A0A0';
 
 export default function LoginScreen() {

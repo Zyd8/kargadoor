@@ -36,22 +36,22 @@ const TOMTOM_KEY = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 const C = {
-  primary:    '#0A3D2B',
-  primaryMid: '#1B6B4A',
-  primaryLt:  '#2E8C63',
-  accent:     '#00E87A',
-  accentDim:  '#D4FAE8',
+  primary:    '#c7881a',
+  primaryMid: '#f0a92d',
+  primaryLt:  '#f5bc4a',
+  accent:     '#f0a92d',
+  accentDim:  '#FEF5E6',
   surface:    '#FFFFFF',
-  surfaceAlt: '#F3F7F4',
-  cardDark:   '#0A3D2B',
-  ink:        '#0C1C14',
-  inkMid:     '#4A5E54',
-  inkSoft:    '#93A89C',
-  border:     '#E0EBE4',
+  surfaceAlt: '#FBF8F4',
+  cardDark:   '#f0a92d',
+  ink:        '#1C1410',
+  inkMid:     '#5E544A',
+  inkSoft:    '#9C938A',
+  border:     '#EDE6DC',
   danger:     '#F03E3E',
   warning:    '#F59E0B',
-  bg:         '#EDF2EE',
-  gold:       '#F5A623',
+  bg:         '#F8F6F2',
+  gold:       '#f0a92d',
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -943,7 +943,7 @@ function DriverHome({ userId, userName }: { userId: string; userName?: string | 
             <Text style={sx.earnerBadgeText}>{stats.totalDeliveries} completed</Text>
           </View>
         </View>
-        <Text style={{ fontSize: 52, opacity: 0.18 }}>💰</Text>
+
       </View>
 
       <View style={sx.pillRow}>
@@ -1255,7 +1255,7 @@ const sx = StyleSheet.create({
   earnerBanner:{ backgroundColor: C.cardDark, borderRadius: 20, padding: 22, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   earnerLbl:   { fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 4 },
   earnerVal:   { fontSize: 30, fontWeight: '800', color: '#fff', letterSpacing: -1 },
-  earnerBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8, backgroundColor: 'rgba(0,232,122,0.15)', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  earnerBadge: { backgroundColor: '#fff',flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8,  alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   earnerBadgeText: { fontSize: 11, color: C.accent, fontWeight: '600' },
 
   // ── pills

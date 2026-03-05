@@ -70,8 +70,8 @@ function buildMapHTML(apiKey: string, lat: number, lng: number): string {
     var arrowHTML =
       '<div id="user-arrow" style="width:36px;height:36px;transform:rotate(0deg);transition:transform 0.25s linear;">' +
         '<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">' +
-          '<circle cx="18" cy="18" r="17" fill="#1B6B4A" fill-opacity="0.2"/>' +
-          '<polygon points="18,4 28,30 18,24 8,30" fill="#1B6B4A" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>' +
+          '<circle cx="18" cy="18" r="17" fill="#f0a92d" fill-opacity="0.2"/>' +
+          '<polygon points="18,4 28,30 18,24 8,30" fill="#f0a92d" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>' +
         '</svg>' +
       '</div>';
 
@@ -157,7 +157,7 @@ export default function TrackingScreen() {
   if (!coords) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#1B6B4A" />
+        <ActivityIndicator size="large" color="#f0a92d" />
         <Text style={styles.loadingText}>Getting your location…</Text>
       </View>
     );

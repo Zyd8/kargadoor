@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/contexts/auth-context';
 
-const PRIMARY  = '#1B6B4A';
+const PRIMARY  = '#f0a92d';
 const INACTIVE = '#9E9E9E';
 
 type TabIconProps = { name: React.ComponentProps<typeof MaterialIcons>['name']; color: string };
@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: '#fff',
     borderTopWidth: 1,
-    borderTopColor: '#E8EDE8',
+    borderTopColor: '#EDE6DC',
     minHeight: 64,
   },
   tabLabel: {

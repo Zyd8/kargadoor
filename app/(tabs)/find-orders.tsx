@@ -26,7 +26,7 @@ import { supabase } from '@/lib/supabase';
 const TOMTOM_KEY  = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
 const DEFAULT_LAT = 14.5995;
 const DEFAULT_LNG = 120.9842;
-const PRIMARY     = '#1B6B4A';
+const PRIMARY     = '#f0a92d';
 
 const RADIUS_OPTIONS = [2, 5, 10, 20, 9999] as const;
 const RADIUS_LABELS: Record<number, string> = { 2: '2 km', 5: '5 km', 10: '10 km', 20: '20 km', 9999: 'Any' };
@@ -99,7 +99,7 @@ function buildMapHTML(
     .order-popup h3{font-size:14px;font-weight:700;color:#1A1A1A;margin-bottom:8px}
     .order-popup p{font-size:12px;color:#555;margin-bottom:4px;line-height:1.4}
     .order-popup .lbl{font-weight:600;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
-    .accept-btn{display:block;width:100%;margin-top:10px;padding:10px;background:#1B6B4A;color:#fff;
+    .accept-btn{display:block;width:100%;margin-top:10px;padding:10px;background:#f0a92d;color:#fff;
       border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;text-align:center}
     .accept-btn:active{opacity:0.8}
   </style>
@@ -138,8 +138,8 @@ function buildMapHTML(
   var arrowHTML = '<div class="driver-arrow-outer">'
     + '<div class="driver-arrow-inner" style="width:36px;height:36px;transition:transform 0.25s linear">'
     + '<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">'
-    + '<circle cx="18" cy="18" r="17" fill="#1B6B4A" fill-opacity="0.2"/>'
-    + '<polygon points="18,4 28,30 18,24 8,30" fill="#1B6B4A" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>'
+    + '<circle cx="18" cy="18" r="17" fill="#f0a92d" fill-opacity="0.2"/>'
+    + '<polygon points="18,4 28,30 18,24 8,30" fill="#f0a92d" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>'
     + '</svg></div></div>';
 
   var driverMarker = L.marker([${driverLat},${driverLng}], {
@@ -427,7 +427,7 @@ export default function FindOrdersScreen() {
           <Text style={styles.title}>Find Orders</Text>
         </View>
         <View style={styles.gateContainer}>
-          <MaterialIcons name="directions-car" size={64} color="#C8D8D0" />
+          <MaterialIcons name="directions-car" size={64} color="#E8DCC8" />
           <Text style={styles.gateTitle}>No active vehicle</Text>
           <Text style={styles.gateSub}>
             Add and select a vehicle in your profile before finding orders.
@@ -517,13 +517,13 @@ const styles = StyleSheet.create({
   safe:        { flex: 1, backgroundColor: '#fff' },
   center:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
   loadingText: { marginTop: 12, fontSize: 15, color: '#888' },
-  header:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#E4EAE4', backgroundColor: '#fff' },
+  header:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#EDE6DC', backgroundColor: '#fff' },
   headerLeft:       { flexDirection: 'row', alignItems: 'center', gap: 10 },
   title:            { fontSize: 22, fontWeight: '700', color: '#1A1A1A' },
   vehicleBadge:     { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: PRIMARY + '14', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
   vehicleBadgeText: { fontSize: 12, color: PRIMARY, fontWeight: '600' },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
-  refreshBtn:  { backgroundColor: '#EEF2EE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  refreshBtn:  { backgroundColor: '#FEF5E6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   refreshText: { fontSize: 13, color: PRIMARY, fontWeight: '600' },
 
   radiusRow:           { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#FAFAFA', borderBottomWidth: 1, borderBottomColor: '#EFEFEF', gap: 6 },

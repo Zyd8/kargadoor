@@ -68,7 +68,7 @@ function buildHTML(lat: number, lng: number, apiKey: string): string {
       className:'',
       html:'<div style="width:32px;height:40px;position:relative">' +
         '<svg viewBox="0 0 32 40" xmlns="http://www.w3.org/2000/svg">' +
-        '<path d="M16 0C9.37 0 4 5.37 4 12c0 9 12 28 12 28S28 21 28 12C28 5.37 22.63 0 16 0z" fill="#1B6B4A"/>' +
+        '<path d="M16 0C9.37 0 4 5.37 4 12c0 9 12 28 12 28S28 21 28 12C28 5.37 22.63 0 16 0z" fill="#f0a92d"/>' +
         '<circle cx="16" cy="12" r="5" fill="#fff"/>' +
         '</svg></div>',
       iconSize:[32,40],iconAnchor:[16,40]
@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
   barBtn:           { minWidth: 70 },
   barTitle:         { flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
   barCancel:        { fontSize: 15, color: '#888' },
-  barConfirmBtn:    { backgroundColor: '#1B6B4A', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, alignItems: 'center' },
+  barConfirmBtn:    { backgroundColor: '#f0a92d', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, alignItems: 'center' },
   barConfirmDisabled:{ opacity: 0.45 },
   barConfirm:       { fontSize: 15, color: '#fff', fontWeight: '700' },
   map:              { flex: 1 },

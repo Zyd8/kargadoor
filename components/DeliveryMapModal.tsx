@@ -24,7 +24,7 @@ import WebView from 'react-native-webview';
 
 import { supabase } from '@/lib/supabase';
 
-const PRIMARY     = '#1B6B4A';
+const PRIMARY     = '#f0a92d';
 const GEOFENCE_KM = 1;
 
 export interface DeliveryMapModalProps {
@@ -106,8 +106,8 @@ function buildMapHTML(
   // Driver arrow (green)
   var arrowHTML='<div style="width:36px;height:36px">'
     +'<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">'
-    +'<circle cx="18" cy="18" r="17" fill="#1B6B4A" fill-opacity="0.2"/>'
-    +'<polygon points="18,4 28,30 18,24 8,30" fill="#1B6B4A" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>'
+    +'<circle cx="18" cy="18" r="17" fill="#f0a92d" fill-opacity="0.2"/>'
+    +'<polygon points="18,4 28,30 18,24 8,30" fill="#f0a92d" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>'
     +'</svg></div>';
 
   var driverMarker = L.marker([${driverLat},${driverLng}],{
@@ -123,7 +123,7 @@ function buildMapHTML(
   window.updateDriverPos = function(lat,lng) {
     driverMarker.setLatLng([lat,lng]);
     var inside = map.distance(driverMarker.getLatLng(), [${dropLat},${dropLng}]) <= ${GEOFENCE_KM * 1000};
-    circle.setStyle({color: inside ? '#1B6B4A' : '#EF4444', fillColor: inside ? '#1B6B4A' : '#EF4444'});
+    circle.setStyle({color: inside ? '#f0a92d' : '#EF4444', fillColor: inside ? '#f0a92d' : '#EF4444'});
     window.ReactNativeWebView.postMessage(JSON.stringify({
       insideRadius: inside,
       distKm: map.distance(driverMarker.getLatLng(),[${dropLat},${dropLng}]) / 1000
@@ -383,7 +383,7 @@ const styles = StyleSheet.create({
     paddingTop: 52,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#E4EAE4',
+    borderBottomColor: '#EDE6DC',
     backgroundColor: '#fff',
   },
   topTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },

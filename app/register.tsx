@@ -27,7 +27,7 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
-const PRIMARY = '#1B6B4A';
+const PRIMARY = '#f0a92d';
 const PLACEHOLDER = '#A0A0A0';
 
 export default function RegisterScreen() {
@@ -136,7 +136,7 @@ export default function RegisterScreen() {
             {avatarUri ? (
               <Image source={{ uri: avatarUri }} style={styles.avatarImg} />
             ) : (
-              <MaterialIcons name="person" size={36} color="#C8D8D0" />
+              <MaterialIcons name="person" size={36} color="#E8DCC8" />
             )}
             <View style={styles.avatarCamBadge}>
               <MaterialIcons name="photo-camera" size={14} color="#fff" />
@@ -273,7 +273,7 @@ const styles = StyleSheet.create({
   textInput:  { flex: 1, fontSize: 15, color: '#1A1A1A' },
   roleLabel:           { fontSize: 12, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10, marginTop: 6 },
   roleRow:             { flexDirection: 'row', gap: 10, marginBottom: 8 },
-  rolePill:            { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 11, borderRadius: 12, borderWidth: 1.5, borderColor: '#E4EAE4', backgroundColor: '#F4F6F4' },
+  rolePill:            { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 11, borderRadius: 12, borderWidth: 1.5, borderColor: '#EDE6DC', backgroundColor: '#FBF8F4' },
   rolePillSelected:    { backgroundColor: PRIMARY, borderColor: PRIMARY },
   rolePillText:        { fontSize: 14, fontWeight: '600', color: '#555' },
   rolePillTextSelected:{ color: '#fff' },
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
   btnDisabled:{ opacity: 0.65 },
   btnText:    { color: '#fff', fontSize: 16, fontWeight: '700' },
 
-  avatarPicker:  { alignSelf: 'center', width: 80, height: 80, borderRadius: 40, backgroundColor: '#EEF2EE', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  avatarPicker:  { alignSelf: 'center', width: 80, height: 80, borderRadius: 40, backgroundColor: '#FEF5E6', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
   avatarImg:     { width: 80, height: 80, borderRadius: 40 },
   avatarCamBadge:{ position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderRadius: 12, backgroundColor: PRIMARY, alignItems: 'center', justifyContent: 'center' },
   avatarHint:    { textAlign: 'center', fontSize: 12, color: '#AAA', marginBottom: 16 },

@@ -32,21 +32,21 @@ const { width: SW } = Dimensions.get('window');
 
 // ── Palette (matches home screen) ────────────────────────────────────────────
 const C = {
-  primary:    '#0A3D2B',
-  primaryMid: '#1B6B4A',
-  primaryLt:  '#2E8C63',
-  accent:     '#00E87A',
-  accentDim:  '#D4FAE8',
+  primary:    '#c7881a',
+  primaryMid: '#f0a92d',
+  primaryLt:  '#f5bc4a',
+  accent:     '#f0a92d',
+  accentDim:  '#FEF5E6',
   surface:    '#FFFFFF',
-  surfaceAlt: '#F3F7F4',
-  ink:        '#0C1C14',
-  inkMid:     '#4A5E54',
-  inkSoft:    '#93A89C',
-  border:     '#E0EBE4',
+  surfaceAlt: '#FBF8F4',
+  ink:        '#1C1410',
+  inkMid:     '#5E544A',
+  inkSoft:    '#9C938A',
+  border:     '#EDE6DC',
   danger:     '#F03E3E',
   warning:    '#F59E0B',
-  bg:         '#EDF2EE',
-  gold:       '#F5A623',
+  bg:         '#F8F6F2',
+  gold:       '#f0a92d',
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -838,7 +838,7 @@ const sx = StyleSheet.create({
     borderWidth: 1.5, borderColor: 'transparent',
     position: 'relative', overflow: 'hidden',
   },
-  vCardActive: { backgroundColor: '#EDFFF7', borderColor: C.accent },
+  vCardActive: { backgroundColor: '#FFF8ED', borderColor: C.accent },
   vTag:        { position: 'absolute', top: 8, right: 8, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5 },
   vTagText:    { fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
   vEmojiWrap:       { width: 42, height: 42, borderRadius: 13, backgroundColor: 'rgba(27,107,74,0.09)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 },

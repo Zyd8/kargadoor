@@ -24,7 +24,7 @@ import ActiveDeliveryModal from '@/components/ActiveDeliveryModal';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
 
-const PRIMARY = '#1B6B4A';
+const PRIMARY = '#f0a92d';
 const TOMTOM_KEY = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
 
 type Package = {
@@ -91,9 +91,9 @@ function routeThumbnailHTML(pickupLat: number, pickupLng: number, dropoffLat: nu
 var map = L.map('m',{zoomControl:false,attributionControl:false}).setView([${centerLat},${centerLng}], 12);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
 L.tileLayer('https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${K}&tileSize=256',{maxZoom:22}).addTo(map);
-L.circleMarker([${pickupLat},${pickupLng}],{radius:6,fillColor:'#1B6B4A',color:'#fff',weight:2,fillOpacity:1}).addTo(map);
+L.circleMarker([${pickupLat},${pickupLng}],{radius:6,fillColor:'#f0a92d',color:'#fff',weight:2,fillOpacity:1}).addTo(map);
 L.circleMarker([${dropoffLat},${dropoffLng}],{radius:6,fillColor:'#F59E0B',color:'#fff',weight:2,fillOpacity:1}).addTo(map);
-var line = L.polyline([[${pickupLat},${pickupLng}],[${dropoffLat},${dropoffLng}]],{color:'#1B6B4A',weight:3,opacity:0.7}).addTo(map);
+var line = L.polyline([[${pickupLat},${pickupLng}],[${dropoffLat},${dropoffLng}]],{color:'#f0a92d',weight:3,opacity:0.7}).addTo(map);
 map.fitBounds(line.getBounds(),{padding:[8,8]});
 </script></body></html>`;
 }
@@ -451,7 +451,7 @@ export default function OrdersScreen() {
           }
           ListEmptyComponent={
             <View style={styles.empty}>
-              <MaterialIcons name="local-shipping" size={52} color="#C8D8D0" />
+              <MaterialIcons name="local-shipping" size={52} color="#E8DCC8" />
               <Text style={styles.emptyTitle}>
                 {isDriver ? 'No deliveries yet' : 'No orders yet'}
               </Text>
@@ -488,8 +488,8 @@ export default function OrdersScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe:   { flex: 1, backgroundColor: '#EEF2EE' },
-  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#E4EAE4', backgroundColor: '#fff' },
+  safe:   { flex: 1, backgroundColor: '#F8F6F2' },
+  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#EDE6DC', backgroundColor: '#fff' },
   title:  { fontSize: 26, fontWeight: '700', color: '#1A1A1A' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
@@ -508,10 +508,10 @@ const styles = StyleSheet.create({
     elevation: 2,
     overflow: 'hidden',
   },
-  thumbnailWrap:  { height: 72, width: '100%', marginBottom: 10, backgroundColor: '#E8EDE8', borderTopLeftRadius: 14, borderTopRightRadius: 14, overflow: 'hidden' },
+  thumbnailWrap:  { height: 72, width: '100%', marginBottom: 10, backgroundColor: '#F0EDE6', borderTopLeftRadius: 14, borderTopRightRadius: 14, overflow: 'hidden' },
   thumbnailMap:   { flex: 1, height: 72 },
   cardTop:      { flexDirection: 'row', alignItems: 'center' },
-  vehicleCircle:{ width: 42, height: 42, borderRadius: 10, backgroundColor: '#EEF2EE', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  vehicleCircle:{ width: 42, height: 42, borderRadius: 10, backgroundColor: '#FEF5E6', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   cardMid:      { flex: 1, marginRight: 8 },
   cardRoute:    { fontSize: 13, color: '#333', fontWeight: '500' },
   cardArrow:    { fontSize: 11, color: '#C0C8C0', marginVertical: 1 },
@@ -555,14 +555,14 @@ const styles = StyleSheet.create({
   cancelOrderBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
   retryText: { color: PRIMARY, fontWeight: '600', marginTop: 12, fontSize: 15 },
 
-  driverRow:           { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#F0F6F3', borderRadius: 12, padding: 12, marginBottom: 16 },
-  driverAvatar:        { width: 48, height: 48, borderRadius: 24, backgroundColor: '#C8D8D0' },
-  driverAvatarFallback:{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#EEF2EE', alignItems: 'center', justifyContent: 'center' },
+  driverRow:           { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FEF5E6', borderRadius: 12, padding: 12, marginBottom: 16 },
+  driverAvatar:        { width: 48, height: 48, borderRadius: 24, backgroundColor: '#E8DCC8' },
+  driverAvatarFallback:{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#F8F6F2', alignItems: 'center', justifyContent: 'center' },
   driverLabel:         { fontSize: 11, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.5 },
   driverName:          { fontSize: 15, fontWeight: '700', color: '#1A1A1A', marginTop: 2 },
 
   // Tracking link section
-  trackingLinkSection: { backgroundColor: '#F0F6F3', borderRadius: 12, padding: 16, marginTop: 16 },
+  trackingLinkSection: { backgroundColor: '#FEF5E6', borderRadius: 12, padding: 16, marginTop: 16 },
   trackingLinkLabel:   { fontSize: 13, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },
   trackingLinkSubtext: { fontSize: 12, color: '#666', marginBottom: 12 },
   shareTrackingBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 10, paddingVertical: 12, borderWidth: 1, borderColor: PRIMARY },
