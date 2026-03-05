@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Save, RefreshCw, AlertCircle, Pencil, X, Check } from 'lucide-react'
+import { RefreshCw, AlertCircle, Pencil, X, Check } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { PricingConfig } from '@/types'
 import { ALL_VEHICLE_TYPES, formatCurrency, formatDate } from '@/lib/utils'
@@ -7,21 +7,9 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { useToast } from '@/components/ui/use-toast'
 import { Skeleton } from '@/components/ui/skeleton'
-
-// Default rates (mirrors the hardcoded calculate_delivery_price function)
-const DEFAULT_RATES: Record<string, { base: number; perKm: number }> = {
-  bike: { base: 30, perKm: 8 },
-  motorcycle: { base: 40, perKm: 10 },
-  car: { base: 100, perKm: 15 },
-  mpv: { base: 150, perKm: 20 },
-  van: { base: 180, perKm: 22 },
-  l300: { base: 200, perKm: 23 },
-  'small truck': { base: 200, perKm: 25 },
-  'large truck': { base: 300, perKm: 35 },
-}
 
 interface EditState {
   vehicleType: string
@@ -43,7 +31,6 @@ export default function Pricing() {
     setLoading(true)
     const { data, error } = await supabase.from('PRICING_CONFIG').select('*').order('VEHICLE_TYPE')
     if (error) {
-      // Table might not exist yet
       setHasTable(false)
       setLoading(false)
       return
@@ -53,12 +40,8 @@ export default function Pricing() {
     setLoading(false)
   }
 
-  function startEdit(config: PricingConfig) {
-    setEditing({
-      vehicleType: config.VEHICLE_TYPE,
-      baseFare: config.BASE_FARE.toString(),
-      perKmRate: config.PER_KM_RATE.toString(),
-    })
+  function startEdit(vehicleType: string, baseFare: number, perKmRate: number) {
+    setEditing({ vehicleType, baseFare: baseFare.toString(), perKmRate: perKmRate.toString() })
   }
 
   function cancelEdit() { setEditing(null) }
@@ -74,34 +57,47 @@ export default function Pricing() {
     setSaving(true)
     const { error } = await supabase
       .from('PRICING_CONFIG')
-      .update({ BASE_FARE: base, PER_KM_RATE: perKm, UPDATED_AT: new Date().toISOString() })
-      .eq('VEHICLE_TYPE', editing.vehicleType)
+      .upsert({
+        VEHICLE_TYPE: editing.vehicleType,
+        BASE_FARE: base,
+        PER_KM_RATE: perKm,
+        UPDATED_AT: new Date().toISOString(),
+      }, { onConflict: 'VEHICLE_TYPE' })
+
     if (error) {
       toast({ variant: 'destructive', title: 'Save failed', description: error.message })
       setSaving(false)
       return
     }
     toast({ title: '✅ Pricing updated', description: `${editing.vehicleType} rates saved.` })
-    setConfigs(prev => prev.map(c =>
-      c.VEHICLE_TYPE === editing.vehicleType
-        ? { ...c, BASE_FARE: base, PER_KM_RATE: perKm }
-        : c
-    ))
+    setConfigs(prev => {
+      const exists = prev.find(c => c.VEHICLE_TYPE === editing.vehicleType)
+      if (exists) {
+        return prev.map(c => c.VEHICLE_TYPE === editing.vehicleType
+          ? { ...c, BASE_FARE: base, PER_KM_RATE: perKm, UPDATED_AT: new Date().toISOString() }
+          : c
+        )
+      }
+      return [...prev, {
+        ID: crypto.randomUUID(),
+        VEHICLE_TYPE: editing.vehicleType,
+        BASE_FARE: base,
+        PER_KM_RATE: perKm,
+        UPDATED_AT: new Date().toISOString(),
+      }]
+    })
     setEditing(null)
     setSaving(false)
   }
 
-  // Merge configs with vehicle type metadata
+  // Merge DB configs with the full vehicle type list
   const rows = ALL_VEHICLE_TYPES.map(vt => {
     const config = configs.find(c => c.VEHICLE_TYPE === vt.type)
-    const defaults = DEFAULT_RATES[vt.type] ?? { base: 40, perKm: 10 }
     return {
       ...vt,
-      config,
-      baseFare: config?.BASE_FARE ?? defaults.base,
-      perKmRate: config?.PER_KM_RATE ?? defaults.perKm,
+      baseFare: config?.BASE_FARE ?? 0,
+      perKmRate: config?.PER_KM_RATE ?? 0,
       updatedAt: config?.UPDATED_AT ?? null,
-      fromDB: !!config,
     }
   })
 
@@ -123,9 +119,8 @@ export default function Pricing() {
           <Alert variant="warning">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>PRICING_CONFIG table not found</AlertTitle>
-            <AlertDescription className="space-y-2">
-              <p>Run the SQL in <code className="font-mono text-xs">MIGRATION_REQUIRED.sql</code> to create the pricing configuration table.</p>
-              <p>Until then, the app uses <strong>hardcoded rates</strong> from the <code className="font-mono text-xs">calculate_delivery_price</code> database function.</p>
+            <AlertDescription>
+              Run the SQL in <code className="font-mono text-xs">migrations/MIGRATION_REQUIRED.sql</code> to create the pricing configuration table.
             </AlertDescription>
           </Alert>
         )}
@@ -137,7 +132,6 @@ export default function Pricing() {
             <CardDescription>
               Total price = <strong>Base Fare</strong> + (<strong>Per-km Rate</strong> × distance in km).
               Distance is calculated using the Haversine formula between pickup and dropoff coordinates.
-              {!hasTable && ' Currently using hardcoded values from the database function.'}
             </CardDescription>
           </CardHeader>
         </Card>
@@ -151,19 +145,18 @@ export default function Pricing() {
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Base Fare (₱)</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Per Km (₱)</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Sample (5 km)</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Source</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Last Updated</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {loading && ALL_VEHICLE_TYPES.map((_, i) => (
-                <tr key={i}>{Array.from({ length: 7 }).map((_, j) => <td key={j} className="px-4 py-3"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                <tr key={i}>{Array.from({ length: 6 }).map((_, j) => <td key={j} className="px-4 py-3"><Skeleton className="h-5 w-full" /></td>)}</tr>
               ))}
               {!loading && rows.map(row => {
                 const isEditing = editing?.vehicleType === row.type
                 return (
-                  <tr key={row.type} className={`hover:bg-muted/20 transition-colors ${!row.fromDB ? 'opacity-70' : ''}`}>
+                  <tr key={row.type} className="hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3">
                       <span className="text-base mr-2">{row.emoji}</span>
                       <span className="font-medium capitalize">{row.label}</span>
@@ -202,18 +195,11 @@ export default function Pricing() {
                         : formatCurrency(row.baseFare + row.perKmRate * 5)
                       }
                     </td>
-                    <td className="px-4 py-3">
-                      {row.fromDB ? (
-                        <span className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">DB Config</span>
-                      ) : (
-                        <span className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5">Hardcoded</span>
-                      )}
-                    </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {row.updatedAt ? formatDate(row.updatedAt) : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      {hasTable && row.fromDB && (
+                      {hasTable && (
                         isEditing ? (
                           <div className="flex gap-1">
                             <Button size="icon" variant="ghost" className="h-7 w-7 text-green-600" onClick={saveEdit} disabled={saving}>
@@ -224,7 +210,7 @@ export default function Pricing() {
                             </Button>
                           </div>
                         ) : (
-                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(row.config!)}>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(row.type, row.baseFare, row.perKmRate)}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
                         )
@@ -236,19 +222,6 @@ export default function Pricing() {
             </tbody>
           </table>
         </div>
-
-        {/* Note about DB function update */}
-        {hasTable && (
-          <Alert variant="info">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Important: Update the database function</AlertTitle>
-            <AlertDescription>
-              After creating the <code className="font-mono text-xs">PRICING_CONFIG</code> table, you must also update the
-              <code className="font-mono text-xs"> calculate_delivery_price</code> function to read from this table instead of hardcoded values.
-              See <code className="font-mono text-xs">MIGRATION_REQUIRED.sql</code> for the full migration script.
-            </AlertDescription>
-          </Alert>
-        )}
       </div>
     </div>
   )
