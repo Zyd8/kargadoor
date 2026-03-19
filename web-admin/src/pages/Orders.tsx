@@ -26,7 +26,8 @@ function StatusBadge({ status }: { status: string | null }) {
 // ── Detail drawer ──────────────────────────────────────────────────────────────
 function OrderDrawer({ order, onClose, onCopy }: { order: Package; onClose: () => void; onCopy: (text: string) => void }) {
   const [copied, setCopied] = useState(false)
-  const trackUrl = order.TRACKING_TOKEN ? `https://track.example.com/track/${order.TRACKING_TOKEN}` : null
+  const TRACKING_WEBSITE_URL = 'https://kargadoorshare.vercel.app'
+  const trackUrl = order.TRACKING_TOKEN ? `${TRACKING_WEBSITE_URL}/track/${order.TRACKING_TOKEN}` : null
 
   function handleCopy() {
     if (!trackUrl) return

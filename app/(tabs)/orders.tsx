@@ -201,9 +201,12 @@ function OrderDetailModal({
   const APP_SCHEME = Constants.expoConfig?.scheme ?? 'frontend';
   const trackingUrl = `${APP_SCHEME}://track/${item.TRACKING_TOKEN}`;
 
+  // Your deployed tracking website URL
+  const TRACKING_WEBSITE_URL = 'https://kargadoorshare.vercel.app';
+
   const handleShareTrackingLink = async () => {
-    // Full tracking URL
-    const shareUrl = `https://track.example.com/track/${item.TRACKING_TOKEN}`;
+    // Full tracking URL for web sharing
+    const shareUrl = `${TRACKING_WEBSITE_URL}/track/${item.TRACKING_TOKEN}`;
     
     try {
       // Use React Native's built-in Share
