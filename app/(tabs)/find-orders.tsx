@@ -99,9 +99,17 @@ function buildMapHTML(
     .order-popup h3{font-size:14px;font-weight:700;color:#1A1A1A;margin-bottom:8px}
     .order-popup p{font-size:12px;color:#555;margin-bottom:4px;line-height:1.4}
     .order-popup .lbl{font-weight:600;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
+    .routes{margin-top:10px;border-top:1px solid #EEE;padding-top:10px}
+    .routes-title{font-size:11px;font-weight:800;color:#666;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px}
+    .route-btn{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:9px 10px;margin-bottom:6px;
+      border:1px solid #E5E7EB;border-radius:10px;background:#fff;color:#1A1A1A;cursor:pointer;font-size:12px;font-weight:700}
+    .route-btn small{display:block;font-size:10px;font-weight:700;color:#6B7280}
+    .route-btn.active{border-color:#f0a92d;box-shadow:0 0 0 3px rgba(240,169,45,0.15)}
+    .route-btn:disabled{opacity:0.55;cursor:not-allowed}
     .accept-btn{display:block;width:100%;margin-top:10px;padding:10px;background:#f0a92d;color:#fff;
       border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;text-align:center}
     .accept-btn:active{opacity:0.8}
+    .accept-btn:disabled{opacity:0.55;cursor:not-allowed}
   </style>
 </head>
 <body>
@@ -201,7 +209,7 @@ function buildMapHTML(
       var payment = pMeth ? (String(pMeth).charAt(0).toUpperCase()+String(pMeth).slice(1)) : '\u2014';
       var name    = (o.RECIPIENT_NAME != null ? o.RECIPIENT_NAME : o.recipient_name) || '\u2014';
 
-      var popupHtml = '<div class="order-popup">'
+      var popupHtml = '<div class="order-popup" id="popup-'+id+'">'
         + '<h3>Delivery Order</h3>'
         + '<p class="lbl">Pick Up</p><p>'+pickup+'</p>'
         + '<p class="lbl" style="margin-top:6px">Drop Off</p><p>'+dropoff+'</p>'
@@ -210,18 +218,154 @@ function buildMapHTML(
         + '<p class="lbl" style="margin-top:6px">Items</p><p>'+items+'</p>'
         + '<p class="lbl" style="margin-top:6px">Contact</p><p>'+contact+'</p>'
         + '<p class="lbl" style="margin-top:6px">Payment</p><p>'+payment+'</p>'
-        + '<button class="accept-btn" onclick="acceptOrder(\\''+o.ID+'\\')">Accept Order</button>'
+        + '<div class="routes">'
+        +   '<div class="routes-title">Choose a route</div>'
+        +   '<div id="routes-'+id+'">'
+        +     '<button class="route-btn" disabled>Loading routes…</button>'
+        +   '</div>'
+        + '</div>'
+        + '<button id="accept-'+id+'" class="accept-btn" disabled onclick="acceptOrder(\\''+id+'\\')">Accept Order</button>'
         + '</div>';
 
       m.bindPopup(popupHtml, {maxWidth:260, minWidth:220});
+      m.on('popupopen', function() {
+        if (typeof window.loadRoutesForOrder === 'function') {
+          window.loadRoutesForOrder(id, lat, lng);
+        }
+      });
       markers[id] = m;
     });
   }
 
   renderOrders(orders);
 
+  // ── Alternative routes (driver → pickup) ───────────────────────────────────
+  var routeLayers = {};       // { [orderId]: L.Polyline[] }
+  var selectedRouteIdx = {};  // { [orderId]: number | null }
+
+  function fmtMin(sec) {
+    var m = Math.max(1, Math.round((Number(sec) || 0) / 60));
+    return m + ' min';
+  }
+  function fmtKm(meters) {
+    var km = (Number(meters) || 0) / 1000;
+    return km.toFixed(1) + ' km';
+  }
+
+  function clearRoutes(orderId) {
+    var layers = routeLayers[orderId] || [];
+    layers.forEach(function(l) { try { map.removeLayer(l); } catch(e){} });
+    routeLayers[orderId] = [];
+    selectedRouteIdx[orderId] = null;
+  }
+
+  function setRouteSelection(orderId, idx) {
+    selectedRouteIdx[orderId] = idx;
+    var layers = routeLayers[orderId] || [];
+    layers.forEach(function(l, i) {
+      l.setStyle({
+        color: i === idx ? '#f0a92d' : '#9CA3AF',
+        weight: i === idx ? 6 : 4,
+        opacity: i === idx ? 0.85 : 0.45,
+      });
+    });
+
+    var acceptBtn = document.getElementById('accept-' + orderId);
+    if (acceptBtn) acceptBtn.disabled = (idx == null);
+
+    var wrap = document.getElementById('routes-' + orderId);
+    if (wrap) {
+      Array.prototype.slice.call(wrap.querySelectorAll('.route-btn')).forEach(function(btn) {
+        var bIdx = Number(btn.getAttribute('data-idx'));
+        if (isFinite(bIdx) && bIdx === idx) btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
+    }
+  }
+
+  async function fetchRoutes(fromLat, fromLng, toLat, toLng) {
+    var base =
+      'https://api.tomtom.com/routing/1/calculateRoute/' +
+      fromLat + ',' + fromLng + ':' + toLat + ',' + toLng +
+      '/json?key=' + encodeURIComponent(K) + '&traffic=true';
+    // Ask for up to 3 total routes (2 alternatives + 1 main). If unsupported, fall back to single route.
+    var url = base + '&maxAlternatives=2';
+    var resp = await fetch(url);
+    if (!resp.ok) resp = await fetch(base);
+    if (!resp.ok) return [];
+    var data = await resp.json();
+    var routes = (data && data.routes) ? data.routes : [];
+    return Array.isArray(routes) ? routes.slice(0, 3) : [];
+  }
+
+  function routePoints(route) {
+    var pts = route && route.legs && route.legs[0] && route.legs[0].points ? route.legs[0].points : [];
+    if (!Array.isArray(pts)) return [];
+    return pts.map(function(p){ return [p.latitude, p.longitude]; });
+  }
+
+  window.loadRoutesForOrder = async function(orderId, pickupLat, pickupLng) {
+    try {
+      clearRoutes(orderId);
+
+      var wrap = document.getElementById('routes-' + orderId);
+      if (!wrap) return;
+      wrap.innerHTML = '<button class="route-btn" disabled>Loading routes…</button>';
+      var acceptBtn = document.getElementById('accept-' + orderId);
+      if (acceptBtn) acceptBtn.disabled = true;
+
+      var from = driverMarker.getLatLng();
+      var routes = await fetchRoutes(from.lat, from.lng, pickupLat, pickupLng);
+      if (!routes || routes.length === 0) {
+        wrap.innerHTML = '<button class="route-btn" disabled>No routes available</button>';
+        return;
+      }
+
+      // Draw all routes (grey)
+      var layers = [];
+      routes.forEach(function(r) {
+        var pts = routePoints(r);
+        if (!pts || pts.length < 2) return;
+        var line = L.polyline(pts, { color:'#9CA3AF', weight:4, opacity:0.45, lineJoin:'round' }).addTo(map);
+        layers.push(line);
+      });
+      routeLayers[orderId] = layers;
+
+      // Build buttons
+      wrap.innerHTML = '';
+      routes.forEach(function(r, i) {
+        var s = r && r.summary ? r.summary : {};
+        var t = fmtMin(s.travelTimeInSeconds);
+        var d = fmtKm(s.lengthInMeters);
+        var btn = document.createElement('button');
+        btn.className = 'route-btn';
+        btn.setAttribute('data-idx', String(i));
+        btn.innerHTML =
+          '<div>Route ' + (i+1) + '<small>' + d + '</small></div>' +
+          '<div><small>' + t + '</small></div>';
+        btn.onclick = function() { setRouteSelection(orderId, i); };
+        wrap.appendChild(btn);
+      });
+
+      if (routes.length <= 1) {
+        // Only one route -> auto-select
+        setRouteSelection(orderId, 0);
+      } else {
+        // Multiple routes -> force explicit pick
+        setRouteSelection(orderId, null);
+      }
+
+      var b = L.latLngBounds([from, [pickupLat, pickupLng]]);
+      map.fitBounds(b, { padding:[50,50] });
+    } catch(e) {
+      var wrap = document.getElementById('routes-' + orderId);
+      if (wrap) wrap.innerHTML = '<button class="route-btn" disabled>Could not load routes</button>';
+    }
+  };
+
   // ── Accept order ──────────────────────────────────────────────────────────
   window.acceptOrder = function(id) {
+    if (selectedRouteIdx[id] == null) return;
     window.ReactNativeWebView.postMessage(JSON.stringify({action:'accept',id:id}));
   };
 
