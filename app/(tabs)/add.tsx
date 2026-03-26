@@ -1,11 +1,11 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Animated,
-  Dimensions,
   KeyboardAvoidingView,
   LayoutAnimation,
   Platform,
@@ -28,7 +28,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const { width: SW } = Dimensions.get('window');
+const TOMTOM_KEY = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
 
 // ── Palette (matches home screen) ────────────────────────────────────────────
 const C = {
@@ -50,9 +50,7 @@ const C = {
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type VehicleId =
-  | 'bike' | 'ebike' | 'moto' | 'sedan'
-  | 'suv'  | 'pickup' | 'cargovan' | 'truck';
+type VehicleId = string;
 
 type PaymentMethod = 'cash' | 'gcash';
 
@@ -117,6 +115,56 @@ function addOnTotal(ids: Set<string>) {
   return ADD_ONS.filter(a => ids.has(a.id)).reduce((s, a) => s + a.price, 0);
 }
 
+type TomTomTravelMode =
+  | 'car'
+  | 'truck'
+  | 'taxi'
+  | 'bus'
+  | 'van'
+  | 'motorcycle'
+  | 'bicycle'
+  | 'pedestrian';
+
+function tomtomTravelModeForBackendVehicleType(vehicleType: string | null): TomTomTravelMode | null {
+  const t = (vehicleType ?? '').toLowerCase();
+  if (!t) return null;
+  if (t.includes('truck')) return 'truck';
+  if (t.includes('van') || t.includes('mpv') || t.includes('car')) return 'car';
+  if (t.includes('motorcycle') || t.includes('moto')) return 'motorcycle';
+  if (t.includes('bike')) return 'bicycle';
+  return 'car';
+}
+
+async function fetchTomTomRouteSummary(args: {
+  pickupLat: number;
+  pickupLng: number;
+  dropoffLat: number;
+  dropoffLng: number;
+  travelMode?: TomTomTravelMode | null;
+}): Promise<{ lengthInMeters: number; travelTimeInSeconds: number } | null> {
+  if (!TOMTOM_KEY) return null;
+  const { pickupLat, pickupLng, dropoffLat, dropoffLng, travelMode } = args;
+  const baseUrl =
+    `https://api.tomtom.com/routing/1/calculateRoute/` +
+    `${pickupLat},${pickupLng}:${dropoffLat},${dropoffLng}/json` +
+    `?key=${encodeURIComponent(String(TOMTOM_KEY))}&traffic=true`;
+
+  const url = travelMode ? `${baseUrl}&travelMode=${encodeURIComponent(travelMode)}` : baseUrl;
+  let resp = await fetch(url);
+  if (!resp.ok && travelMode) resp = await fetch(baseUrl);
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  const summary = data?.routes?.[0]?.summary;
+  const lengthInMeters = Number(summary?.lengthInMeters);
+  const travelTimeInSeconds = Number(summary?.travelTimeInSeconds);
+  if (!Number.isFinite(lengthInMeters) || !Number.isFinite(travelTimeInSeconds)) return null;
+  return { lengthInMeters, travelTimeInSeconds };
+}
+
+function roundMoney(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
 // ── Reusable: Input Row ───────────────────────────────────────────────────────
 function InputRow({
   icon, placeholder, value, onChangeText,
@@ -177,11 +225,12 @@ function StepHeader({ title, onBack, step }: { title: string; onBack: () => void
 
 // ── Vehicle Horizontal Scroller ───────────────────────────────────────────────
 function VehiclePicker({
-  selected, onSelect, pricingData,
+  selected, onSelect, pricingData, vehicles,
 }: {
   selected: VehicleId | '';
   onSelect: (id: VehicleId) => void;
   pricingData: Record<string, PricingRow>;
+  vehicles: VehicleOption[];
 }) {
   return (
     <ScrollView
@@ -190,7 +239,7 @@ function VehiclePicker({
       contentContainerStyle={sx.vScroll}
       style={sx.vScrollOuter}
     >
-      {VEHICLES.map(v => {
+      {vehicles.map(v => {
         const active = selected === v.id;
         return (
           <TouchableOpacity
@@ -211,7 +260,7 @@ function VehiclePicker({
             <Text style={sx.vCap}>{v.capacity}</Text>
             <View style={sx.vMeta}>
               <Text style={[sx.vEta, active && { color: C.primaryLt }]}>{v.eta}</Text>
-              <Text style={[sx.vPrice, active && { color: C.primary }]}>₱{pricingData[v.id]?.baseFare ?? v.basePrice}</Text>
+              <Text style={[sx.vPrice, active && { color: C.primary }]}>₱{pricingData[v.id]?.baseFare ?? '—'}</Text>
             </View>
             {active && <View style={sx.vActiveBar} />}
           </TouchableOpacity>
@@ -316,7 +365,9 @@ export default function AddScreen() {
   const [step, setStep]           = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [estimatedPrice, setEstimatedPrice] = useState<number | null>(null);
-  const [pricingData, setPricingData] = useState<Record<string, number>>({});
+  const [pricingData, setPricingData] = useState<Record<string, PricingRow>>({});
+  const [routeMeta, setRouteMeta] = useState<{ distanceKm: number; durationMin: number } | null>(null);
+  const [pricingLoaded, setPricingLoaded] = useState(false);
   const addOnAnim = useRef(new Animated.Value(0)).current;
 
   const blankForm = (): OrderForm => ({
@@ -354,6 +405,7 @@ export default function AddScreen() {
         });
         setPricingData(byAppId);
       }
+      setPricingLoaded(true);
     })();
   }, []);
 
@@ -362,11 +414,17 @@ export default function AddScreen() {
     else setStep(s => s - 1);
   };
 
-  const selectedVehicle = VEHICLES.find(v => v.id === form.vehicleType);
+  const availableVehicles = useMemo(() => {
+    if (!pricingLoaded) return [];
+    const keys = new Set(Object.keys(pricingData));
+    return VEHICLES.filter(v => keys.has(v.id));
+  }, [pricingLoaded, pricingData]);
 
-  const getBasePrice = (vehicleId: VehicleId): number => {
-    return pricingData[vehicleId] ?? VEHICLES.find(v => v.id === vehicleId)?.basePrice ?? 0;
-  };
+  const selectedVehicle = availableVehicles.find(v => v.id === form.vehicleType) ?? null;
+
+  const getBasePrice = useCallback((vehicleId: VehicleId): number => {
+    return pricingData[vehicleId]?.baseFare ?? 0;
+  }, [pricingData]);
 
   function selectVehicle(id: VehicleId) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -382,7 +440,8 @@ export default function AddScreen() {
 
   function toggleAddOn(id: string) {
     const next = new Set(form.addOns);
-    next.has(id) ? next.delete(id) : next.add(id);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
     set('addOns', next);
   }
 
@@ -398,45 +457,49 @@ export default function AddScreen() {
   // Fetch quote with traffic-aware pricing from TomTom
   useEffect(() => {
     const valid = form.pickup.lat != null && form.dropoff.lat != null && form.vehicleType !== '';
-    if (!valid) { setEstimatedPrice(null); return; }
+    if (!valid) { setEstimatedPrice(null); setRouteMeta(null); return; }
     let mounted = true;
     (async () => {
       try {
-        const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://pjvsgahzacdeymijhzoq.supabase.co';
-        const response = await fetch(`${supabaseUrl}/functions/v1/get-delivery-quote-tomtom`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            pickupLat: form.pickup.lat,
-            pickupLng: form.pickup.lng,
-            dropoffLat: form.dropoff.lat,
-            dropoffLng: form.dropoff.lng,
-            vehicleType: form.vehicleType,
-          }),
+        const backendVehicleType = getBackendVehicleType(form.vehicleType) ?? form.vehicleType;
+        const travelMode = tomtomTravelModeForBackendVehicleType(backendVehicleType);
+        const summary = await fetchTomTomRouteSummary({
+          pickupLat: form.pickup.lat!,
+          pickupLng: form.pickup.lng!,
+          dropoffLat: form.dropoff.lat!,
+          dropoffLng: form.dropoff.lng!,
+          travelMode,
         });
 
         if (!mounted) return;
 
-        if (!response.ok) {
-          // Fall back to old RPC method if Edge Function fails
-          const { data } = await supabase.rpc('get_delivery_quote', {
-            p_vehicle_type: form.vehicleType,
-            p_pickup_lat:   form.pickup.lat,
-            p_pickup_lng:   form.pickup.lng,
-            p_dropoff_lat:  form.dropoff.lat,
-            p_dropoff_lng:  form.dropoff.lng,
-          });
-          setEstimatedPrice(data != null ? Number(data) : null);
-          return;
+        if (summary) {
+          const distanceKm = summary.lengthInMeters / 1000;
+          const durationMin = Math.max(1, Math.round(summary.travelTimeInSeconds / 60));
+          setRouteMeta({ distanceKm, durationMin });
+
+          const baseFare = getBasePrice(form.vehicleType as VehicleId);
+          const perKmRate = pricingData[form.vehicleType]?.perKmRate ?? 0;
+          if (perKmRate > 0) {
+            setEstimatedPrice(roundMoney(baseFare + perKmRate * distanceKm));
+            return;
+          }
         }
 
-        const result = await response.json();
-        setEstimatedPrice(result.estimatedPrice);
+        // Fallback: backend quote (server-side distance logic)
+        const { data } = await supabase.rpc('get_delivery_quote', {
+          p_vehicle_type: backendVehicleType,
+          p_pickup_lat:   form.pickup.lat,
+          p_pickup_lng:   form.pickup.lng,
+          p_dropoff_lat:  form.dropoff.lat,
+          p_dropoff_lng:  form.dropoff.lng,
+        });
+        setEstimatedPrice(data != null ? Number(data) : null);
       } catch (error) {
         console.error('Error fetching delivery quote:', error);
-        // Fall back to old RPC method on error
+        const backendVehicleType = getBackendVehicleType(form.vehicleType) ?? form.vehicleType;
         const { data } = await supabase.rpc('get_delivery_quote', {
-          p_vehicle_type: form.vehicleType,
+          p_vehicle_type: backendVehicleType,
           p_pickup_lat:   form.pickup.lat,
           p_pickup_lng:   form.pickup.lng,
           p_dropoff_lat:  form.dropoff.lat,
@@ -446,7 +509,7 @@ export default function AddScreen() {
       }
     })();
     return () => { mounted = false; };
-  }, [form.pickup.lat, form.pickup.lng, form.dropoff.lat, form.dropoff.lng, form.vehicleType]);
+  }, [form.pickup.lat, form.pickup.lng, form.dropoff.lat, form.dropoff.lng, form.vehicleType, pricingData, getBasePrice]);
 
   const handleSubmit = async () => {
     if (!user) { Alert.alert('Not logged in', 'Please sign in to place an order.'); return; }
@@ -520,7 +583,8 @@ export default function AddScreen() {
 
         {/* Vehicle */}
         <SectionLabel title="Select Vehicle" note={`${VEHICLES.length} types`} />
-        <VehiclePicker selected={form.vehicleType} onSelect={selectVehicle} pricingData={pricingData} />
+        <SectionLabel title="Select Vehicle" note={pricingLoaded ? `${availableVehicles.length} types` : 'Loading…'} />
+        <VehiclePicker selected={form.vehicleType} onSelect={selectVehicle} pricingData={pricingData} vehicles={availableVehicles} />
 
         {/* Add-ons (animated) */}
         {form.vehicleType !== '' && (
@@ -546,7 +610,7 @@ export default function AddScreen() {
             <PriceBanner
               estimatedPrice={estimatedPrice ?? (form.vehicleType ? getBasePrice(form.vehicleType as VehicleId) : null)}
               addOns={form.addOns}
-              vehicleEta={selectedVehicle?.eta}
+              vehicleEta={routeMeta?.durationMin != null ? `~${routeMeta.durationMin} min` : selectedVehicle?.eta}
             />
           </View>
         )}
@@ -581,7 +645,7 @@ export default function AddScreen() {
         <PriceBanner
           estimatedPrice={estimatedPrice ?? (form.vehicleType ? getBasePrice(form.vehicleType as VehicleId) : null)}
           addOns={form.addOns}
-          vehicleEta={selectedVehicle?.eta}
+          vehicleEta={routeMeta?.durationMin != null ? `~${routeMeta.durationMin} min` : selectedVehicle?.eta}
         />
 
         {/* Vehicle summary pill */}
@@ -590,7 +654,9 @@ export default function AddScreen() {
             <Text style={sx.vehicleSummaryEmoji}>{selectedVehicle.emoji}</Text>
             <View style={{ flex: 1 }}>
               <Text style={sx.vehicleSummaryLabel}>{selectedVehicle.label}</Text>
-              <Text style={sx.vehicleSummarySub}>{selectedVehicle.capacity} · {selectedVehicle.eta}</Text>
+              <Text style={sx.vehicleSummarySub}>
+                {selectedVehicle.capacity} · {routeMeta?.durationMin != null ? `~${routeMeta.durationMin} min` : selectedVehicle.eta}
+              </Text>
             </View>
             <TouchableOpacity onPress={() => setStep(1)} style={sx.vehicleSummaryChange}>
               <Text style={sx.vehicleSummaryChangeText}>Change</Text>
@@ -677,7 +743,7 @@ export default function AddScreen() {
         <PriceBanner
           estimatedPrice={estimatedPrice ?? (form.vehicleType ? getBasePrice(form.vehicleType as VehicleId) : null)}
           addOns={form.addOns}
-          vehicleEta={selectedVehicle?.eta}
+          vehicleEta={routeMeta?.durationMin != null ? `~${routeMeta.durationMin} min` : selectedVehicle?.eta}
         />
 
         {/* Order summary card */}

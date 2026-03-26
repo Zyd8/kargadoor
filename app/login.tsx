@@ -123,7 +123,7 @@ export default function LoginScreen() {
           <Link href="/register" asChild>
             <TouchableOpacity style={styles.signupWrap} disabled={loading}>
               <Text style={styles.signupText}>
-                Don't Have An Account?{' '}
+                Don&apos;t Have An Account?{' '}
                 <Text style={styles.signupLink}>Sign Up</Text>
               </Text>
             </TouchableOpacity>

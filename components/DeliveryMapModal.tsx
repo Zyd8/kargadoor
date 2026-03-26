@@ -25,7 +25,7 @@ import WebView from 'react-native-webview';
 import { supabase } from '@/lib/supabase';
 
 const PRIMARY     = '#f0a92d';
-const GEOFENCE_KM = 1;
+const GEOFENCE_KM = 0.1; // 100 meters default for confirming delivery
 
 export interface DeliveryMapModalProps {
   visible: boolean;
@@ -333,7 +333,7 @@ export default function DeliveryMapModal({
             <>
               <View style={styles.bottomRow}>
                 <MaterialIcons name="check-circle" size={20} color={PRIMARY} />
-                <Text style={styles.bottomTextGreen}>You're at the delivery location!</Text>
+                <Text style={styles.bottomTextGreen}>You&apos;re at the delivery location!</Text>
               </View>
               <TouchableOpacity
                 style={styles.photoBtn}

@@ -30,7 +30,7 @@ import { supabase } from '@/lib/supabase';
 
 const PRIMARY     = '#f0a92d';
 const TOMTOM_KEY  = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
-const GEOFENCE_KM = 1;
+const GEOFENCE_KM = 0.1; // 100 meters default for confirming dropoff
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Phase = 'pickup' | 'delivery';
@@ -521,7 +521,7 @@ export default function ActiveDeliveryModal({
               <>
                 <View style={styles.bottomRow}>
                   <MaterialIcons name="check-circle" size={20} color={PRIMARY} />
-                  <Text style={styles.bottomTextGreen}>You're at the delivery location!</Text>
+                  <Text style={styles.bottomTextGreen}>You&apos;re at the delivery location!</Text>
                 </View>
                 <TouchableOpacity
                   style={styles.actionBtn}
