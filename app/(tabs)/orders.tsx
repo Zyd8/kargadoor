@@ -3,7 +3,7 @@ import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import { Share } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -54,6 +54,12 @@ type Package = {
   DRIVER_AVATAR_URL: string | null;
   DRIVER_NAME: string | null;
   TRACKING_TOKEN: string | null;
+};
+
+type DriverProfile = {
+  FULL_NAME: string | null;
+  AVATAR_URL: string | null;
+  PHONE_NUMBER: string | null;
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -186,6 +192,39 @@ function OrderDetailModal({
   onCancel: (pkg: Package) => void;
   isCancelling: boolean;
 }) {
+  const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    setDriverProfile(null);
+
+    const driverId = item.DRIVER_ID ?? null;
+    const shouldFetch =
+      !isDriver &&
+      (item.STATUS === 'IN_PROGRESS' || item.STATUS === 'COMPLETE') &&
+      driverId &&
+      (!item.DRIVER_NAME || !item.DRIVER_AVATAR_URL);
+
+    if (!shouldFetch) return () => { mounted = false; };
+
+    (async () => {
+      const { data, error } = await supabase
+        .from('PROFILE')
+        .select('FULL_NAME, AVATAR_URL, PHONE_NUMBER')
+        .eq('ID', driverId)
+        .maybeSingle();
+
+      if (!mounted) return;
+      if (error || !data) return;
+      setDriverProfile(data as DriverProfile);
+    })();
+
+    return () => { mounted = false; };
+  }, [isDriver, item.DRIVER_AVATAR_URL, item.DRIVER_ID, item.DRIVER_NAME, item.STATUS]);
+
+  const driverName = item.DRIVER_NAME ?? driverProfile?.FULL_NAME ?? null;
+  const driverAvatarUrl = item.DRIVER_AVATAR_URL ?? driverProfile?.AVATAR_URL ?? null;
+
   const vehicleLabel = (item.VEHICLE_TYPE ?? '—').charAt(0).toUpperCase() + (item.VEHICLE_TYPE ?? '').slice(1);
   const paymentLabel = (item.PAYMENT_METHOD ?? '—').charAt(0).toUpperCase() + (item.PAYMENT_METHOD ?? '').slice(1);
 
@@ -238,8 +277,8 @@ function OrderDetailModal({
           <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
             {!isDriver && (item.STATUS === 'IN_PROGRESS' || item.STATUS === 'COMPLETE') && (
               <View style={styles.driverRow}>
-                {item.DRIVER_AVATAR_URL ? (
-                  <Image source={{ uri: item.DRIVER_AVATAR_URL }} style={styles.driverAvatar} />
+                {driverAvatarUrl ? (
+                  <Image source={{ uri: driverAvatarUrl }} style={styles.driverAvatar} />
                 ) : (
                   <View style={styles.driverAvatarFallback}>
                     <MaterialIcons name="local-shipping" size={22} color={PRIMARY} />
@@ -247,7 +286,7 @@ function OrderDetailModal({
                 )}
                 <View>
                   <Text style={styles.driverLabel}>Your Driver</Text>
-                  <Text style={styles.driverName}>{item.DRIVER_NAME ?? 'Driver'}</Text>
+                  <Text style={styles.driverName}>{driverName ?? 'Driver'}</Text>
                 </View>
               </View>
             )}
