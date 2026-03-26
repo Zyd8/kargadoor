@@ -7,8 +7,8 @@
  *   takes a proof photo, then the map switches to Phase 2.
  *
  * Phase 2 — Delivery leg:
- *   Map shows driver → dropoff route (red pin + 1 km geofence). Within 1 km the
- *   "Take POD Photo" button enables, completing the order.
+ *   Map shows driver → dropoff route (red pin + configurable geofence from APP_CONFIG).
+ *   Within the geofence the "Take POD Photo" button enables, completing the order.
  */
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import Constants from 'expo-constants';
@@ -27,10 +27,10 @@ import {
 import WebView from 'react-native-webview';
 
 import { supabase } from '@/lib/supabase';
+import { useDeliveryRadius } from '@/hooks/use-delivery-radius';
 
 const PRIMARY     = '#f0a92d';
 const TOMTOM_KEY  = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
-const GEOFENCE_KM = 0.1; // 100 meters default for confirming dropoff
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Phase = 'pickup' | 'delivery';
@@ -99,6 +99,7 @@ function buildMapHTML(
   destLat: number,
   destLng: number,
   phase: Phase,
+  geofenceKm: number,
 ): string {
   const pinColour    = phase === 'pickup' ? '#F59E0B' : '#EF4444';
   const pinLabel     = phase === 'pickup' ? 'PICKUP' : 'DROP OFF';
@@ -164,7 +165,7 @@ function buildMapHTML(
 
   // ── 1 km geofence (delivery phase only) ─────────────────────────────────
   var geofence=${showGeofence
-    ? `L.circle([${destLat},${destLng}],{radius:${GEOFENCE_KM*1000},color:'#EF4444',fillColor:'#EF4444',fillOpacity:0.08,weight:2,dashArray:'6,4'}).addTo(map)`
+    ? `L.circle([${destLat},${destLng}],{radius:${geofenceKm*1000},color:'#EF4444',fillColor:'#EF4444',fillOpacity:0.08,weight:2,dashArray:'6,4'}).addTo(map)`
     : 'null'};
 
   // ── Route polyline ───────────────────────────────────────────────────────
@@ -184,7 +185,7 @@ function buildMapHTML(
     destMarker.setIcon(makePinIcon('#EF4444','DROP OFF'));
     if(routeLine){map.removeLayer(routeLine); routeLine=null;}
     if(!geofence){
-      geofence=L.circle([lat,lng],{radius:${GEOFENCE_KM*1000},color:'#EF4444',fillColor:'#EF4444',fillOpacity:0.08,weight:2,dashArray:'6,4'}).addTo(map);
+      geofence=L.circle([lat,lng],{radius:${geofenceKm*1000},color:'#EF4444',fillColor:'#EF4444',fillOpacity:0.08,weight:2,dashArray:'6,4'}).addTo(map);
     } else {
       geofence.setLatLng([lat,lng]);
     }
@@ -195,7 +196,7 @@ function buildMapHTML(
     driverLat=lat; driverLng=lng;
     driverMarker.setLatLng([lat,lng]);
     if(curPhase==='delivery'&&geofence){
-      var inside=map.distance([lat,lng],[destLat,destLng])<=${GEOFENCE_KM*1000};
+      var inside=map.distance([lat,lng],[destLat,destLng])<=${geofenceKm*1000};
       geofence.setStyle({color:inside?'#f0a92d':'#EF4444',fillColor:inside?'#f0a92d':'#EF4444'});
       window.ReactNativeWebView.postMessage(JSON.stringify({
         insideRadius:inside,
@@ -222,6 +223,7 @@ export default function ActiveDeliveryModal({
   onDelivered,
 }: ActiveDeliveryModalProps) {
   const webRef = useRef<WebView>(null);
+  const geofenceKm = useDeliveryRadius();
 
   const [phase, setPhase]               = useState<Phase>(
     pkg.PICKUP_CONFIRMED_AT ? 'delivery' : 'pickup'
@@ -266,7 +268,7 @@ export default function ActiveDeliveryModal({
       if (phase === 'delivery' && destLat != null && destLng != null) {
         const d = haversineKm(c.lat, c.lng, destLat, destLng);
         setDistKm(d);
-        setInsideRadius(d <= GEOFENCE_KM);
+        setInsideRadius(d <= geofenceKm);
       }
 
       posSub = await Location.watchPositionAsync(
@@ -478,6 +480,7 @@ export default function ActiveDeliveryModal({
                 driverCoords.lat, driverCoords.lng,
                 destLat!, destLng!,
                 phase,
+                geofenceKm,
               ),
             }}
             style={styles.map}
