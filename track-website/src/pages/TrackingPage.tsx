@@ -3,6 +3,24 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-
 import L from 'leaflet'
 import { supabase, TOMTOM_API_KEY } from '../lib/supabase'
 
+// Fetch route from TomTom Routing API
+async function fetchRoute(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number
+): Promise<[number, number][]> {
+  try {
+    const url = `https://api.tomtom.com/routing/1/calculateRoute/${fromLat},${fromLng}:${toLat},${toLng}/json?key=${TOMTOM_API_KEY}`
+    const resp = await fetch(url)
+    const data = await resp.json()
+    const pts: { latitude: number; longitude: number }[] = data?.routes?.[0]?.legs?.[0]?.points ?? []
+    return pts.map((p) => [p.latitude, p.longitude])
+  } catch {
+    return []
+  }
+}
+
 // Types
 interface Package {
   ID: string
@@ -77,13 +95,18 @@ const getInitials = (name: string | null) => {
 }
 
 // Map bounds component
-function MapBounds({ pickup, dropoff }: { pickup: [number, number]; dropoff: [number, number] }) {
+function MapBounds({ routePoints, pickup, dropoff }: { routePoints: [number, number][]; pickup: [number, number]; dropoff: [number, number] }) {
   const map = useMap()
   
   useEffect(() => {
-    const bounds = L.latLngBounds([pickup, dropoff])
+    let bounds: L.LatLngBounds
+    if (routePoints.length > 0) {
+      bounds = L.latLngBounds(routePoints)
+    } else {
+      bounds = L.latLngBounds([pickup, dropoff])
+    }
     map.fitBounds(bounds, { padding: [30, 30] })
-  }, [map, pickup, dropoff])
+  }, [map, routePoints, pickup, dropoff])
   
   return null
 }
@@ -94,6 +117,7 @@ export default function TrackingPage() {
   const tokenMatch = path.match(/\/track\/([^/]+)/)
   const token = tokenMatch ? tokenMatch[1] : null
   const [order, setOrder] = useState<Package | null>(null)
+  const [routePoints, setRoutePoints] = useState<[number, number][]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
@@ -179,6 +203,19 @@ export default function TrackingPage() {
 
       setOrder(data as Package)
       setLoading(false)
+
+      // Fetch route from TomTom after getting order
+      if (data.PICKUP_LAT && data.PICKUP_LNG && data.DROPOFF_LAT && data.DROPOFF_LNG) {
+        const route = await fetchRoute(
+          data.PICKUP_LAT,
+          data.PICKUP_LNG,
+          data.DROPOFF_LAT,
+          data.DROPOFF_LNG
+        )
+        if (route.length > 0) {
+          setRoutePoints(route)
+        }
+      }
     }
 
     fetchOrder()
@@ -283,17 +320,28 @@ export default function TrackingPage() {
                     <Popup>Driver Location</Popup>
                   </Marker>
                 )}
-                <Polyline
-                  positions={[
-                    [order.PICKUP_LAT!, order.PICKUP_LNG!],
-                    [order.DROPOFF_LAT!, order.DROPOFF_LNG!],
-                  ]}
-                  color="#f0a92d"
-                  weight={4}
-                  opacity={0.7}
-                  dashArray="10, 10"
-                />
+                {routePoints.length > 0 ? (
+                  <Polyline
+                    positions={routePoints}
+                    color="#f0a92d"
+                    weight={5}
+                    opacity={0.75}
+                    lineJoin="round"
+                  />
+                ) : (
+                  <Polyline
+                    positions={[
+                      [order.PICKUP_LAT!, order.PICKUP_LNG!],
+                      [order.DROPOFF_LAT!, order.DROPOFF_LNG!],
+                    ]}
+                    color="#f0a92d"
+                    weight={4}
+                    opacity={0.7}
+                    dashArray="10, 10"
+                  />
+                )}
                 <MapBounds
+                  routePoints={routePoints}
                   pickup={[order.PICKUP_LAT!, order.PICKUP_LNG!]}
                   dropoff={[order.DROPOFF_LAT!, order.DROPOFF_LNG!]}
                 />
