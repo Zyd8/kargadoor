@@ -3,8 +3,8 @@
  * Full-screen Leaflet map showing:
  *  - Driver's live GPS position (green arrow)
  *  - Dropoff destination pin (red)
- *  - 1 km geofence circle around the dropoff
- * When the driver is inside the 1 km circle, the "Take POD Photo" button enables.
+ *  - Configurable geofence circle around the dropoff (from APP_CONFIG)
+ * When the driver is inside the geofence, the "Take POD Photo" button enables.
  * On confirm: takes a photo, uploads to Supabase Storage, marks order COMPLETE.
  */
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -23,9 +23,9 @@ import {
 import WebView from 'react-native-webview';
 
 import { supabase } from '@/lib/supabase';
+import { useDeliveryRadius } from '@/hooks/use-delivery-radius';
 
 const PRIMARY     = '#f0a92d';
-const GEOFENCE_KM = 1;
 
 export interface DeliveryMapModalProps {
   visible: boolean;
@@ -59,6 +59,7 @@ function buildMapHTML(
   driverLng: number,
   dropLat: number,
   dropLng: number,
+  geofenceKm: number,
 ): string {
   return `<!DOCTYPE html>
 <html>
@@ -83,7 +84,7 @@ function buildMapHTML(
 
   // Geofence circle around dropoff
   var circle = L.circle([${dropLat},${dropLng}], {
-    radius: ${GEOFENCE_KM * 1000},
+    radius: ${geofenceKm * 1000},
     color: '#EF4444', fillColor: '#EF4444', fillOpacity: 0.08, weight: 2, dashArray: '6,4'
   }).addTo(map);
 
@@ -122,7 +123,7 @@ function buildMapHTML(
 
   window.updateDriverPos = function(lat,lng) {
     driverMarker.setLatLng([lat,lng]);
-    var inside = map.distance(driverMarker.getLatLng(), [${dropLat},${dropLng}]) <= ${GEOFENCE_KM * 1000};
+    var inside = map.distance(driverMarker.getLatLng(), [${dropLat},${dropLng}]) <= ${geofenceKm * 1000};
     circle.setStyle({color: inside ? '#f0a92d' : '#EF4444', fillColor: inside ? '#f0a92d' : '#EF4444'});
     window.ReactNativeWebView.postMessage(JSON.stringify({
       insideRadius: inside,
@@ -144,6 +145,7 @@ export default function DeliveryMapModal({
   onDelivered,
 }: DeliveryMapModalProps) {
   const webRef = useRef<WebView>(null);
+  const geofenceKm = useDeliveryRadius();
   const [driverCoords, setDriverCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [insideRadius, setInsideRadius] = useState(false);
   const [distKm, setDistKm]             = useState<number | null>(null);
@@ -171,7 +173,7 @@ export default function DeliveryMapModal({
       if (hasDropoff) {
         const d = haversineKm(c.lat, c.lng, dropoffLat!, dropoffLng!);
         setDistKm(d);
-        setInsideRadius(d <= GEOFENCE_KM);
+        setInsideRadius(d <= geofenceKm);
       }
 
       sub = await Location.watchPositionAsync(
@@ -184,7 +186,7 @@ export default function DeliveryMapModal({
           if (hasDropoff) {
             const d = haversineKm(latitude, longitude, dropoffLat!, dropoffLng!);
             setDistKm(d);
-            setInsideRadius(d <= GEOFENCE_KM);
+            setInsideRadius(d <= geofenceKm);
           }
         }
       );
@@ -317,7 +319,7 @@ export default function DeliveryMapModal({
         ) : (
           <WebView
             ref={webRef}
-            source={{ html: buildMapHTML(driverCoords.lat, driverCoords.lng, dropoffLat!, dropoffLng!) }}
+            source={{ html: buildMapHTML(driverCoords.lat, driverCoords.lng, dropoffLat!, dropoffLng!, geofenceKm) }}
             style={styles.map}
             originWhitelist={['*']}
             javaScriptEnabled
