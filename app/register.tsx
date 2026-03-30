@@ -44,19 +44,8 @@ export default function RegisterScreen() {
   const insets = useSafeAreaInsets();
 
   const handlePhoneChange = (text: string) => {
-    let digits = text.replace(/\D/g, '');
-    
-    if (digits.startsWith('09')) {
-      digits = digits.substring(1);
-    }
-    if (digits.startsWith('63')) {
-      digits = digits.substring(2);
-    }
-
-    // limit to 10 digits
-    digits = digits.substring(0, 10);
-
-    setPhone(`+63${digits}`);
+    const digits = text.replace(/\D/g, '').substring(0, 10);
+    setPhone(digits);
   };
 
   const handlePickAvatar = async () => {
@@ -221,15 +210,16 @@ export default function RegisterScreen() {
 
           <View style={styles.inputRow}>
             <MaterialIcons name="phone" size={20} color={PLACEHOLDER} style={styles.inputIcon} />
+            <Text style={{ marginRight: 4, fontSize: 15, color: '#1A1A1A', alignSelf: 'center' }}>+63</Text>
             <TextInput
-              style={styles.textInput}
+              style={[styles.textInput, { flex: 1 }]}
               placeholder="Phone Number (e.g. +63XXXXXXXXXX)"
               placeholderTextColor={PLACEHOLDER}
               value={phone}
-              onChangeText={setPhone}
+              onChangeText={handlePhoneChange}
               keyboardType="phone-pad"
               editable={!loading}
-              maxLength={13}
+              maxLength={10} 
             />
           </View>
 
