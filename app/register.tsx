@@ -36,12 +36,28 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState('+63');
   const [role, setRole] = useState<'USER' | 'DRIVER'>('USER');
   const [loading, setLoading] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [avatarBase64, setAvatarBase64] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+
+  const handlePhoneChange = (text: string) => {
+    let digits = text.replace(/\D/g, '');
+    
+    if (digits.startsWith('09')) {
+      digits = digits.substring(1);
+    }
+    if (digits.startsWith('63')) {
+      digits = digits.substring(2);
+    }
+
+    // limit to 10 digits
+    digits = digits.substring(0, 10);
+
+    setPhone(`+63${digits}`);
+  };
 
   const handlePickAvatar = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -68,6 +84,10 @@ export default function RegisterScreen() {
     }
     if (password !== confirmPassword) {
       Alert.alert('Error', 'Passwords do not match.');
+      return;
+    }
+    if (!/^\+63\d{10}$/.test(phone)) {
+      Alert.alert('Error', 'Phone number must be in format +63XXXXXXXXXX.');
       return;
     }
     setLoading(true);
@@ -203,12 +223,13 @@ export default function RegisterScreen() {
             <MaterialIcons name="phone" size={20} color={PLACEHOLDER} style={styles.inputIcon} />
             <TextInput
               style={styles.textInput}
-              placeholder="Phone Number (e.g. 09XXXXXXXXX)"
+              placeholder="Phone Number (e.g. +63XXXXXXXXXX)"
               placeholderTextColor={PLACEHOLDER}
               value={phone}
               onChangeText={setPhone}
               keyboardType="phone-pad"
               editable={!loading}
+              maxLength={13}
             />
           </View>
 
