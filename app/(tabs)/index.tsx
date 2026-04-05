@@ -2,12 +2,11 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import Constants from 'expo-constants';
 import { Image } from 'expo-image';
 import { useFocusEffect, router } from 'expo-router';
-import { useCallback, useRef, useState, useEffect } from 'react';
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Animated,
-  Dimensions,
   KeyboardAvoidingView,
   LayoutAnimation,
   Modal,
@@ -31,8 +30,57 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const { width: SW } = Dimensions.get('window');
 const TOMTOM_KEY = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
+
+type TomTomTravelMode =
+  | 'car'
+  | 'truck'
+  | 'taxi'
+  | 'bus'
+  | 'van'
+  | 'motorcycle'
+  | 'bicycle'
+  | 'pedestrian';
+
+function tomtomTravelModeForBackendVehicleType(vehicleType: string | null): TomTomTravelMode | null {
+  const t = (vehicleType ?? '').toLowerCase();
+  if (!t) return null;
+  if (t.includes('truck')) return 'truck';
+  if (t.includes('van') || t.includes('mpv') || t.includes('car')) return 'car';
+  if (t.includes('motorcycle') || t.includes('moto')) return 'motorcycle';
+  if (t.includes('bike')) return 'bicycle';
+  return 'car';
+}
+
+async function fetchTomTomRouteSummary(args: {
+  pickupLat: number;
+  pickupLng: number;
+  dropoffLat: number;
+  dropoffLng: number;
+  travelMode?: TomTomTravelMode | null;
+}): Promise<{ lengthInMeters: number; travelTimeInSeconds: number } | null> {
+  if (!TOMTOM_KEY) return null;
+  const { pickupLat, pickupLng, dropoffLat, dropoffLng, travelMode } = args;
+  const baseUrl =
+    `https://api.tomtom.com/routing/1/calculateRoute/` +
+    `${pickupLat},${pickupLng}:${dropoffLat},${dropoffLng}/json` +
+    `?key=${encodeURIComponent(String(TOMTOM_KEY))}&traffic=true`;
+
+  const url = travelMode ? `${baseUrl}&travelMode=${encodeURIComponent(travelMode)}` : baseUrl;
+  let resp = await fetch(url);
+  if (!resp.ok && travelMode) resp = await fetch(baseUrl);
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  const summary = data?.routes?.[0]?.summary;
+  const lengthInMeters = Number(summary?.lengthInMeters);
+  const travelTimeInSeconds = Number(summary?.travelTimeInSeconds);
+  if (!Number.isFinite(lengthInMeters) || !Number.isFinite(travelTimeInSeconds)) return null;
+  return { lengthInMeters, travelTimeInSeconds };
+}
+
+function roundMoney(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 const C = {
@@ -246,6 +294,8 @@ function BookingForm() {
   const [activeAddOns, setActiveAddOns] = useState<Set<string>>(new Set());
   const [pricingData,  setPricingData]  = useState<Record<string, PricingRow>>({});
   const [estimatedPrice, setEstimatedPrice] = useState<number | null>(null);
+  const [routeMeta, setRouteMeta] = useState<{ distanceKm: number; durationMin: number } | null>(null);
+  const [pricingLoaded, setPricingLoaded] = useState(false);
 
   const [recipientName, setRecipientName] = useState('');
   const [contactNumber, setContactNumber] = useState(
@@ -268,16 +318,24 @@ function BookingForm() {
 
   const addOnTotal = ADD_ONS.filter(a => activeAddOns.has(a.id)).reduce((s, a) => s + a.price, 0);
 
-  const getBasePrice = (vehicleId: string | null) => {
+  const getBasePrice = useCallback((vehicleId: string | null) => {
     if (!vehicleId) return 0;
     return pricingData[vehicleId]?.baseFare ?? VEHICLES.find(v => v.id === vehicleId)?.basePrice ?? 0;
-  };
+  }, [pricingData]);
 
   const totalPrice = getBasePrice(selectedVehicle?.id ?? null) + addOnTotal;
   const finalEstimated =
     estimatedPrice != null
       ? estimatedPrice + addOnTotal
       : totalPrice;
+
+  const etaLabel = routeMeta?.durationMin != null ? `~${routeMeta.durationMin} min` : selectedVehicle?.eta;
+
+  const availableVehicles = useMemo(() => {
+    if (!pricingLoaded) return [];
+    const keys = new Set(Object.keys(pricingData));
+    return VEHICLES.filter(v => keys.has(v.id));
+  }, [pricingLoaded, pricingData]);
 
   function selectVehicle(id: string) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -311,12 +369,14 @@ function BookingForm() {
         });
         setPricingData(byAppId);
       }
+      setPricingLoaded(true);
     })();
   }, []);
 
   function toggleAddOn(id: string) {
     const next = new Set(activeAddOns);
-    next.has(id) ? next.delete(id) : next.add(id);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
     setActiveAddOns(next);
   }
 
@@ -335,48 +395,46 @@ function BookingForm() {
 
     if (!valid) {
       setEstimatedPrice(null);
+      setRouteMeta(null);
       return;
     }
 
     let mounted = true;
     (async () => {
       try {
-        const supabaseUrl =
-          process.env.EXPO_PUBLIC_SUPABASE_URL ||
-          'https://pjvsgahzacdeymijhzoq.supabase.co';
-
         const backendVehicleType = getBackendVehicleType(selected) ?? selected;
-        const response = await fetch(
-          `${supabaseUrl}/functions/v1/get-delivery-quote-tomtom`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              pickupLat: pickup.lat,
-              pickupLng: pickup.lng,
-              dropoffLat: dropoff.lat,
-              dropoffLng: dropoff.lng,
-              vehicleType: backendVehicleType,
-            }),
-          }
-        );
+        const travelMode = tomtomTravelModeForBackendVehicleType(backendVehicleType);
+        const summary = await fetchTomTomRouteSummary({
+          pickupLat: pickup.lat!,
+          pickupLng: pickup.lng!,
+          dropoffLat: dropoff.lat!,
+          dropoffLng: dropoff.lng!,
+          travelMode,
+        });
 
         if (!mounted) return;
 
-        if (!response.ok) {
-          const { data } = await supabase.rpc('get_delivery_quote', {
-            p_vehicle_type: backendVehicleType,
-            p_pickup_lat:   pickup.lat,
-            p_pickup_lng:   pickup.lng,
-            p_dropoff_lat:  dropoff.lat,
-            p_dropoff_lng:  dropoff.lng,
-          });
-          setEstimatedPrice(data != null ? Number(data) : null);
-          return;
+        if (summary) {
+          const distanceKm = summary.lengthInMeters / 1000;
+          const durationMin = Math.max(1, Math.round(summary.travelTimeInSeconds / 60));
+          setRouteMeta({ distanceKm, durationMin });
+
+          const baseFare = getBasePrice(selected);
+          const perKmRate = pricingData[selected]?.perKmRate ?? 0;
+          if (perKmRate > 0) {
+            setEstimatedPrice(roundMoney(baseFare + perKmRate * distanceKm));
+            return;
+          }
         }
 
-        const result = await response.json();
-        setEstimatedPrice(result.estimatedPrice);
+        const { data } = await supabase.rpc('get_delivery_quote', {
+          p_vehicle_type: backendVehicleType,
+          p_pickup_lat:   pickup.lat,
+          p_pickup_lng:   pickup.lng,
+          p_dropoff_lat:  dropoff.lat,
+          p_dropoff_lng:  dropoff.lng,
+        });
+        setEstimatedPrice(data != null ? Number(data) : null);
       } catch (error) {
         console.error('Error fetching delivery quote:', error);
         const backendVehicleType = getBackendVehicleType(selected) ?? selected;
@@ -394,7 +452,7 @@ function BookingForm() {
     return () => {
       mounted = false;
     };
-  }, [pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, selected]);
+  }, [pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, selected, pricingData, getBasePrice]);
 
   const handleSubmit = async () => {
     if (!user) {
@@ -507,7 +565,7 @@ function BookingForm() {
       {/* Vehicle heading */}
       <View style={sx.vHeadRow}>
         <Text style={sx.vHeadTitle}>Select Vehicle</Text>
-        <Text style={sx.vHeadCount}>{VEHICLES.length} types</Text>
+        <Text style={sx.vHeadCount}>{pricingLoaded ? `${availableVehicles.length} types` : 'Loading…'}</Text>
       </View>
 
       {/* Horizontal vehicle cards */}
@@ -517,7 +575,7 @@ function BookingForm() {
         contentContainerStyle={sx.vScroll}
         style={sx.vScrollOuter}
       >
-        {VEHICLES.map(v => {
+        {availableVehicles.map(v => {
           const active = selected === v.id;
           return (
             <TouchableOpacity
@@ -543,7 +601,7 @@ function BookingForm() {
 
               <View style={sx.vMeta}>
                 <Text style={[sx.vEta, active && { color: C.primaryLt }]}>{v.eta}</Text>
-                <Text style={[sx.vPrice, active && { color: C.primary }]}>₱{pricingData[v.id]?.baseFare ?? v.basePrice}</Text>
+                <Text style={[sx.vPrice, active && { color: C.primary }]}>₱{pricingData[v.id]?.baseFare ?? '—'}</Text>
               </View>
 
               {/* Active bottom bar */}
@@ -590,7 +648,7 @@ function BookingForm() {
           </View>
           <View style={sx.fareEtaChip}>
             <MaterialIcons name="schedule" size={12} color={C.primaryMid} />
-            <Text style={sx.fareEtaText}>{selectedVehicle?.eta}</Text>
+            <Text style={sx.fareEtaText}>{etaLabel}</Text>
           </View>
         </View>
       )}
@@ -648,7 +706,7 @@ function BookingForm() {
                     <View style={{ flex: 1 }}>
                       <Text style={sx.modalVehicleLabel}>{selectedVehicle.label}</Text>
                       <Text style={sx.modalVehicleSub}>
-                        {selectedVehicle.capacity} · {selectedVehicle.eta}
+                        {selectedVehicle.capacity} · {etaLabel}
                       </Text>
                     </View>
                     <View style={sx.modalFarePill}>

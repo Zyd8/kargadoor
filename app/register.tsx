@@ -36,12 +36,17 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState('+63');
   const [role, setRole] = useState<'USER' | 'DRIVER'>('USER');
   const [loading, setLoading] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [avatarBase64, setAvatarBase64] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+
+  const handlePhoneChange = (text: string) => {
+    const digits = text.replace(/\D/g, '').substring(0, 10);
+    setPhone(digits);
+  };
 
   const handlePickAvatar = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -68,6 +73,10 @@ export default function RegisterScreen() {
     }
     if (password !== confirmPassword) {
       Alert.alert('Error', 'Passwords do not match.');
+      return;
+    }
+    if (!/^\+63\d{10}$/.test(phone)) {
+      Alert.alert('Error', 'Phone number must be in format +63XXXXXXXXXX.');
       return;
     }
     setLoading(true);
@@ -201,14 +210,16 @@ export default function RegisterScreen() {
 
           <View style={styles.inputRow}>
             <MaterialIcons name="phone" size={20} color={PLACEHOLDER} style={styles.inputIcon} />
+            <Text style={{ marginRight: 4, fontSize: 15, color: '#1A1A1A', alignSelf: 'center' }}>+63</Text>
             <TextInput
-              style={styles.textInput}
-              placeholder="Phone Number (e.g. 09XXXXXXXXX)"
+              style={[styles.textInput, { flex: 1 }]}
+              placeholder="Phone Number (e.g. +63XXXXXXXXXX)"
               placeholderTextColor={PLACEHOLDER}
               value={phone}
-              onChangeText={setPhone}
+              onChangeText={handlePhoneChange}
               keyboardType="phone-pad"
               editable={!loading}
+              maxLength={10} 
             />
           </View>
 

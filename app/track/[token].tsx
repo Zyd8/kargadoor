@@ -14,6 +14,24 @@ const PRIMARY = '#f0a92d';
 // Get the scheme from app.json - defaults to 'frontend'
 const APP_SCHEME = Constants.expoConfig?.scheme ?? 'frontend';
 
+// Fetch route from TomTom Routing API
+async function fetchRoute(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number
+): Promise<[number, number][]> {
+  try {
+    const url = `https://api.tomtom.com/routing/1/calculateRoute/${fromLat},${fromLng}:${toLat},${toLng}/json?key=${TOMTOM_KEY}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    const pts: { latitude: number; longitude: number }[] = data?.routes?.[0]?.legs?.[0]?.points ?? [];
+    return pts.map((p) => [p.latitude, p.longitude]);
+  } catch {
+    return [];
+  }
+}
+
 type Package = {
   ID: string;
   STATUS: string | null;
@@ -55,10 +73,16 @@ function buildMapHTML(
   dropoffLat: number,
   dropoffLng: number,
   driverLat: number | null,
-  driverLng: number | null
+  driverLng: number | null,
+  routePoints: [number, number][]
 ): string {
   const centerLat = (pickupLat + dropoffLat) / 2;
   const centerLng = (pickupLng + dropoffLng) / 2;
+
+  // Serialize route points for JS
+  const routePointsStr = routePoints.length > 0 
+    ? JSON.stringify(routePoints).replace(/\[/g, '[').replace(/\]/g, ']')
+    : '[]';
 
   let driverMarkerJS = '';
   if (driverLat != null && driverLng != null) {
@@ -95,8 +119,9 @@ function buildMapHTML(
     var pickupLat = ${pickupLat}, pickupLng = ${pickupLng};
     var dropoffLat = ${dropoffLat}, dropoffLng = ${dropoffLng};
     var driverLat = ${driverLat ?? 'null'}, driverLng = ${driverLng ?? 'null'};
+    var routePoints = ${routePointsStr};
 
-    var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([${centerLat}, ${centerLng}], 12);
+    var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([${centerLat}, ${centerLat}], 12);
 
     var osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
     var ttLayer = L.tileLayer('https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=' + K + '&tileSize=256', { maxZoom: 22, errorTileUrl: '' });
@@ -122,12 +147,23 @@ function buildMapHTML(
     });
     L.marker([dropoffLat, dropoffLng], { icon: dropoffIcon }).addTo(map).bindPopup('Dropoff');
 
-    var routeLine = L.polyline([[pickupLat, pickupLng], [dropoffLat, dropoffLng]], {
-      color: '#f0a92d',
-      weight: 4,
-      opacity: 0.7,
-      dashArray: '10, 10'
-    }).addTo(map);
+    // Draw route - use actual route points if available, otherwise straight line
+    var routeLine;
+    if (routePoints.length > 0) {
+      routeLine = L.polyline(routePoints, {
+        color: '#f0a92d',
+        weight: 5,
+        opacity: 0.75,
+        lineJoin: 'round'
+      }).addTo(map);
+    } else {
+      routeLine = L.polyline([[pickupLat, pickupLng], [dropoffLat, dropoffLng]], {
+        color: '#f0a92d',
+        weight: 4,
+        opacity: 0.7,
+        dashArray: '10, 10'
+      }).addTo(map);
+    }
     map.fitBounds(routeLine.getBounds(), { padding: [20, 20] });
 
     ${driverMarkerJS}
@@ -160,6 +196,7 @@ export default function PublicTrackingScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [order, setOrder] = useState<Package | null>(null);
+  const [routePoints, setRoutePoints] = useState<[number, number][]>([]);
   const [mapHtml, setMapHtml] = useState<string>('');
 
   useEffect(() => {
@@ -208,6 +245,18 @@ export default function PublicTrackingScreen() {
         }
 
         setOrder(data as Package);
+        
+        // Fetch route from TomTom
+        const route = await fetchRoute(
+          data.PICKUP_LAT,
+          data.PICKUP_LNG,
+          data.DROPOFF_LAT,
+          data.DROPOFF_LNG
+        );
+        if (route.length > 0) {
+          setRoutePoints(route);
+        }
+        
         setMapHtml(
           buildMapHTML(
             TOMTOM_KEY,
@@ -216,7 +265,8 @@ export default function PublicTrackingScreen() {
             data.DROPOFF_LAT,
             data.DROPOFF_LNG,
             data.CURRENT_LAT,
-            data.CURRENT_LNG
+            data.CURRENT_LNG,
+            route
           )
         );
       } catch (err) {
