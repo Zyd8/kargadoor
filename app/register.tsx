@@ -197,31 +197,39 @@ export default function RegisterScreen() {
 
           <View style={styles.inputRow}>
             <MaterialIcons name="lock" size={20} color={PLACEHOLDER} style={styles.inputIcon} />
-            <TextInput
-              style={styles.textInput}
-              placeholder="Confirm Password"
-              placeholderTextColor={PLACEHOLDER}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry
-              editable={!loading}
-            />
+            <TextInput 
+              style={styles.textInput} 
+              placeholder="Confirm Password" 
+              placeholderTextColor={PLACEHOLDER} 
+              value={confirmPassword} 
+              onChangeText={setConfirmPassword} 
+              secureTextEntry 
+              editable={!loading}/>
           </View>
 
           <View style={styles.inputRow}>
-            <MaterialIcons name="phone" size={20} color={PLACEHOLDER} style={styles.inputIcon} />
-            <Text style={{ marginRight: 4, fontSize: 15, color: '#1A1A1A', alignSelf: 'center' }}>+63</Text>
-            <TextInput
-              style={[styles.textInput, { flex: 1 }]}
-              placeholder="Phone Number (e.g. +63XXXXXXXXXX)"
-              placeholderTextColor={PLACEHOLDER}
-              value={phone}
-              onChangeText={handlePhoneChange}
-              keyboardType="phone-pad"
-              editable={!loading}
-              maxLength={10} 
-            />
-          </View>
+              <MaterialIcons name="phone" size={20} color={PLACEHOLDER} style={styles.inputIcon}/>
+
+              {/* fixed prefix */}
+              <Text
+                style={{ marginRight: 4, fontSize: 15, color: '#1A1A1A', alignSelf: 'center', fontWeight: '600',}}>
+                +63
+              </Text>
+
+              <TextInput
+                style={[styles.textInput, { flex: 1 }]}
+                placeholder="9XXXXXXXXX"
+                placeholderTextColor={PLACEHOLDER}
+                keyboardType="phone-pad"
+                editable={!loading}
+                maxLength={10}
+                value={phone.replace('+63', '')}
+                onChangeText={(text) => {
+                  const digits = text.replace(/\D/g, '').slice(0, 10);
+                  setPhone('+63' + digits);
+                }}
+              />
+            </View>
 
           {/* Account Type toggle */}
           <Text style={styles.roleLabel}>Account Type</Text>
