@@ -21,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
 
 import { useAuth } from '@/contexts/auth-context';
+import { CARTO_LIGHT_TILE_URL } from '@/lib/map-tiles';
 import { supabase } from '@/lib/supabase';
 
 const TOMTOM_KEY  = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
@@ -122,9 +123,7 @@ function buildMapHTML(
   var map = L.map('map',{zoomControl:false,attributionControl:false})
     .setView([${driverLat},${driverLng}], 13);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
-  L.tileLayer('https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key='+K+'&tileSize=256',
-    {maxZoom:22,errorTileUrl:''}).addTo(map);
+  L.tileLayer('${CARTO_LIGHT_TILE_URL}',{maxZoom:19}).addTo(map);
   L.control.zoom({position:'topright'}).addTo(map);
 
   // ── Radius circle ─────────────────────────────────────────────────────────

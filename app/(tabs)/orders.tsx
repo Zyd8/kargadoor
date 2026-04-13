@@ -22,6 +22,7 @@ import WebView from 'react-native-webview';
 
 import ActiveDeliveryModal from '@/components/ActiveDeliveryModal';
 import { useAuth } from '@/contexts/auth-context';
+import { CARTO_LIGHT_TILE_URL } from '@/lib/map-tiles';
 import { supabase } from '@/lib/supabase';
 
 const PRIMARY = '#f0a92d';
@@ -95,8 +96,7 @@ function routeThumbnailHTML(pickupLat: number, pickupLng: number, dropoffLat: nu
 <body style="margin:0"><div id="m" style="width:100%;height:100%;min-height:72px;"></div>
 <script>
 var map = L.map('m',{zoomControl:false,attributionControl:false}).setView([${centerLat},${centerLng}], 12);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
-L.tileLayer('https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${K}&tileSize=256',{maxZoom:22}).addTo(map);
+L.tileLayer('${CARTO_LIGHT_TILE_URL}',{maxZoom:19}).addTo(map);
 L.circleMarker([${pickupLat},${pickupLng}],{radius:6,fillColor:'#f0a92d',color:'#fff',weight:2,fillOpacity:1}).addTo(map);
 L.circleMarker([${dropoffLat},${dropoffLng}],{radius:6,fillColor:'#F59E0B',color:'#fff',weight:2,fillOpacity:1}).addTo(map);
 var line = L.polyline([[${pickupLat},${pickupLng}],[${dropoffLat},${dropoffLng}]],{color:'#f0a92d',weight:3,opacity:0.7}).addTo(map);

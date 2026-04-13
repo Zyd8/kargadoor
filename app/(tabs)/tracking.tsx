@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
+import { CARTO_LIGHT_TILE_URL } from '@/lib/map-tiles';
 
 const TOMTOM_KEY = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
 
@@ -52,17 +53,7 @@ function buildMapHTML(apiKey: string, lat: number, lng: number): string {
     // ── Map (no attribution watermark) ───────────────────────────────────
     var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([curLat, curLng], 16);
 
-    var osmLayer = L.tileLayer(
-      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      { maxZoom: 19, attribution: '\\u00a9 OpenStreetMap contributors' }
-    );
-    var ttLayer = L.tileLayer(
-      'https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=' + K + '&tileSize=256',
-      { maxZoom: 22, attribution: '\\u00a9 TomTom', errorTileUrl: '' }
-    );
-    osmLayer.addTo(map);
-    ttLayer.addTo(map);
-    ttLayer.on('tileerror', function() { map.removeLayer(ttLayer); });
+    L.tileLayer('${CARTO_LIGHT_TILE_URL}',{maxZoom:19}).addTo(map);
 
     L.control.zoom({ position: 'topright' }).addTo(map);
 

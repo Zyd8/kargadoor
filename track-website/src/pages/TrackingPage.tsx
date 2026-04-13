@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { supabase, TOMTOM_API_KEY } from '../lib/supabase'
+import { CARTO_LIGHT_TILE_URL } from '../lib/map-tiles'
 
 // Fetch route from TomTom Routing API
 async function fetchRoute(
@@ -306,8 +307,8 @@ export default function TrackingPage() {
             <div className="h-72">
               <MapContainer center={center} zoom={13} style={{ height: '100%', width: '100%' }}>
                 <TileLayer
-                  attribution='&copy; <a href="https://www.tomtom.com/maps/">TomTom</a>'
-                  url={`https://{s}.api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${TOMTOM_API_KEY}`}
+                  attribution=''
+                  url={CARTO_LIGHT_TILE_URL}
                 />
                 <Marker position={[order.PICKUP_LAT!, order.PICKUP_LNG!]} icon={pickupIcon}>
                   <Popup>Pickup Location</Popup>

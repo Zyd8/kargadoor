@@ -26,6 +26,7 @@ import {
 } from 'react-native';
 import WebView from 'react-native-webview';
 
+import { CARTO_LIGHT_TILE_URL } from '@/lib/map-tiles';
 import { supabase } from '@/lib/supabase';
 import { useDeliveryRadius } from '@/hooks/use-delivery-radius';
 
@@ -169,9 +170,7 @@ function buildMapHTML(
   var map = L.map('map',{zoomControl:false,attributionControl:false})
     .setView([(driverLat+destLat)/2,(driverLng+destLng)/2],13);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
-  L.tileLayer('https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${TOMTOM_KEY}&tileSize=256',
-    {maxZoom:22,errorTileUrl:''}).addTo(map);
+  L.tileLayer('${CARTO_LIGHT_TILE_URL}',{maxZoom:19}).addTo(map);
   L.control.zoom({position:'topright'}).addTo(map);
 
   // ── Driver arrow ─────────────────────────────────────────────────────────

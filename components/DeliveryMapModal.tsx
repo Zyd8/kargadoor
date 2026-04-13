@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import WebView from 'react-native-webview';
 
+import { CARTO_LIGHT_TILE_URL } from '@/lib/map-tiles';
 import { supabase } from '@/lib/supabase';
 import { useDeliveryRadius } from '@/hooks/use-delivery-radius';
 
@@ -79,7 +80,7 @@ function buildMapHTML(
   var map = L.map('map',{zoomControl:false,attributionControl:false})
     .setView([${(driverLat + dropLat) / 2},${(driverLng + dropLng) / 2}], 14);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+  L.tileLayer('${CARTO_LIGHT_TILE_URL}',{maxZoom:19}).addTo(map);
   L.control.zoom({position:'topright'}).addTo(map);
 
   // Geofence circle around dropoff

@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
+import { CARTO_LIGHT_TILE_URL } from '@/lib/map-tiles';
 
 const TOMTOM_KEY = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
 
@@ -59,9 +60,7 @@ function buildHTML(lat: number, lng: number, apiKey: string): string {
 
     var map = L.map('map',{zoomControl:false,attributionControl:false}).setView([pinLat,pinLng],15);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
-    L.tileLayer('https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key='+K+'&tileSize=256',
-      {maxZoom:22,errorTileUrl:''}).addTo(map);
+    L.tileLayer('${CARTO_LIGHT_TILE_URL}',{maxZoom:19}).addTo(map);
     L.control.zoom({position:'topright'}).addTo(map);
 
     var pinIcon = L.divIcon({
