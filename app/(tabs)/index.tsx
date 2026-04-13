@@ -711,13 +711,20 @@ function BookingForm() {
 
                   <View style={sx.modalInputRow}>
                     <MaterialIcons name="phone" size={18} color={C.inkSoft} style={{ marginRight: 8 }} />
+                    <Text style={{ marginRight: 6, fontSize: 14, fontWeight: '600', color: C.ink }}>
+                                +63
+                              </Text>
                     <TextInput
                       style={sx.modalTextInput}
-                      placeholder="Contact number"
+                      placeholder="9XXXXXXXXX"
                       placeholderTextColor={C.inkSoft}
                       keyboardType="phone-pad"
-                      value={contactNumber}
-                      onChangeText={setContactNumber}
+                      maxLength={10}
+                      value={contactNumber.replace('+63', '')}
+                      onChangeText={(text) => {
+                        const digits = text.replace(/\D/g, '').slice(0, 10);
+                        setContactNumber('+63' + digits);
+                      }}
                     />
                   </View>
                 </View>
