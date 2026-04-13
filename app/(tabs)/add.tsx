@@ -651,13 +651,26 @@ export default function AddScreen() {
         />
 
         <SectionLabel title="Contact Number" />
-        <InputRow
-          icon="phone"
-          placeholder="Contact number"
-          value={form.contactNumber}
-          onChangeText={t => set('contactNumber', t)}
-          keyboardType="phone-pad"
-        />
+        <View style={sx.inputRow}>
+          <MaterialIcons name="phone" size={18} color={C.inkSoft} style={sx.inputIcon} />
+
+          <Text style={{ marginRight: 6, fontSize: 14, fontWeight: '600', color: C.ink }}>
+            +63
+          </Text>
+
+          <TextInput
+            style={[sx.textInput, { flex: 1 }]}
+            placeholder="9XXXXXXXXX"
+            placeholderTextColor={C.inkSoft}
+            value={form.contactNumber.replace('+63', '')}
+            onChangeText={(text) => {
+              const digits = text.replace(/\D/g, '').slice(0, 10);
+              set('contactNumber', '+63' + digits);
+            }}
+            keyboardType="phone-pad"
+            maxLength={10}
+          />
+        </View>
         <Text style={sx.fieldHint}>Pre-filled from your account — override per order if needed</Text>
 
         <SectionLabel title="Payment Method" />
