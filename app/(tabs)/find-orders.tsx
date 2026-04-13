@@ -12,6 +12,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -227,6 +229,9 @@ function buildMapHTML(
         + '</div>';
 
       m.bindPopup(popupHtml, {maxWidth:260, minWidth:220});
+      m.on('click', function() {
+        map.setView([lat, lng], map.getZoom(), { animate: true });
+      });
       m.on('popupopen', function() {
         if (typeof window.loadRoutesForOrder === 'function') {
           window.loadRoutesForOrder(id, lat, lng);
@@ -395,6 +400,8 @@ export default function FindOrdersScreen() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const activeVehicleRef = useRef<VehicleRow | null>(null);
+  const blinkAnim = useRef(new Animated.Value(1)).current;
+  const blinkAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
 
   const [coords, setCoords]                 = useState<{ lat: number; lng: number } | null>(null);
   const [allOrders, setAllOrders]           = useState<PendingOrder[]>([]);
@@ -404,6 +411,9 @@ export default function FindOrdersScreen() {
   const [locationDenied, setLocationDenied] = useState(false);
   const [vehicleGate, setVehicleGate]       = useState(false);
   const [activeVehicle, setActiveVehicle]   = useState<VehicleRow | null>(null);
+  const [autoFindEnabled, setAutoFindEnabled] = useState(false);
+  const [queueStartedAt, setQueueStartedAt] = useState<number | null>(null);
+  const [autoOpened, setAutoOpened] = useState(false);
 
   const getVisible = useCallback(
     (orders: PendingOrder[], c: { lat: number; lng: number } | null, r: number) =>
@@ -425,7 +435,18 @@ export default function FindOrdersScreen() {
     webRef.current?.injectJavaScript(
       `typeof updateRadius!=='undefined'&&updateRadius(${radiusKm});true`
     );
-  }, [radiusKm, allOrders, coords]);
+
+    // Auto-open first order popup if auto-find enabled and not already opened
+    if (autoFindEnabled && visible.length > 0 && !autoOpened) {
+      const firstOrder = visible[0];
+      webRef.current?.injectJavaScript(
+        `if (markers['${firstOrder.ID}']) { markers['${firstOrder.ID}'].openPopup(); } true`
+      );
+      setAutoOpened(true);
+    } else if (!autoFindEnabled || visible.length === 0) {
+      setAutoOpened(false);
+    }
+  }, [radiusKm, allOrders, coords, autoFindEnabled, autoOpened]);
 
   const fetchOrders = useCallback(async (vehicleType: string | null = null) => {
     const driverId = user?.id ?? null;
@@ -487,6 +508,10 @@ export default function FindOrdersScreen() {
         await fetchOrders(active.TYPE ?? null);
         setLoading(false);
 
+        // ── Auto-enable auto-find ─────────────────────────────────────────
+        setAutoFindEnabled(true);
+        setQueueStartedAt(Date.now());
+
         if (status === 'granted') {
           posSub = await Location.watchPositionAsync(
             { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 10 },
@@ -505,11 +530,6 @@ export default function FindOrdersScreen() {
         }
       })();
 
-      pollRef.current = setInterval(
-        () => fetchOrders(activeVehicleRef.current?.TYPE ?? null),
-        30_000
-      );
-
       return () => {
         posSub?.remove();
         headSub?.remove();
@@ -517,6 +537,21 @@ export default function FindOrdersScreen() {
       };
     }, [fetchOrders, user?.id])
   );
+
+  useEffect(() => {
+    if (!activeVehicle?.TYPE) return;
+    if (pollRef.current) clearInterval(pollRef.current);
+
+    const intervalMs = autoFindEnabled ? 10_000 : 30_000;
+    pollRef.current = setInterval(
+      () => fetchOrders(activeVehicle.TYPE),
+      intervalMs
+    );
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [activeVehicle?.TYPE, autoFindEnabled, fetchOrders]);
 
   const handleMessage = useCallback(async (event: { nativeEvent: { data: string } }) => {
     try {
@@ -541,6 +576,11 @@ export default function FindOrdersScreen() {
       );
       setAllOrders((prev) => prev.filter((o) => o.ID !== msg.id));
 
+      // Disable auto-find after accepting
+      setAutoFindEnabled(false);
+      setQueueStartedAt(null);
+      setAutoOpened(false);
+
       // Notify sender (best-effort)
       supabase.functions.invoke('send-notification', {
         body: {
@@ -553,6 +593,27 @@ export default function FindOrdersScreen() {
       Alert.alert('Order accepted!', 'Head to the pickup location. Check your Orders tab.');
     } catch { /* ignore parse errors */ }
   }, [accepting, user]);
+
+  // Animation for blinking text
+  useEffect(() => {
+    if (autoFindEnabled && visibleOrders.length === 0) {
+      if (blinkAnimationRef.current) {
+        blinkAnimationRef.current.stop();
+      }
+      blinkAnimationRef.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(blinkAnim, { toValue: 0.5, duration: 800, useNativeDriver: true }),
+          Animated.timing(blinkAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+        ])
+      );
+      blinkAnimationRef.current.start();
+    } else {
+      if (blinkAnimationRef.current) {
+        blinkAnimationRef.current.stop();
+        blinkAnim.setValue(1);
+      }
+    }
+  }, [autoFindEnabled, visibleOrders.length, blinkAnim]);
 
   if (loading || (!vehicleGate && !coords)) {
     return (
@@ -604,8 +665,30 @@ export default function FindOrdersScreen() {
             </View>
           )}
         </View>
-        <View style={styles.headerRight}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.headerRightScroll}
+        >
           {accepting && <ActivityIndicator size="small" color={PRIMARY} style={{ marginRight: 10 }} />}
+          <TouchableOpacity
+            onPress={() => {
+              if (autoFindEnabled) {
+                setAutoFindEnabled(false);
+                setQueueStartedAt(null);
+              } else {
+                setAutoFindEnabled(true);
+                setQueueStartedAt(Date.now());
+                fetchOrders(activeVehicle?.TYPE ?? null);
+              }
+            }}
+            style={[styles.autoFindBtn, autoFindEnabled && styles.autoFindBtnActive]}
+            hitSlop={8}
+          >
+            <Text style={[styles.autoFindBtnText, autoFindEnabled && styles.autoFindBtnTextActive]}>
+              {autoFindEnabled ? 'Stop Auto-Find' : 'Auto-Find'}
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={() => fetchOrders(activeVehicle?.TYPE ?? null)}
             style={styles.refreshBtn}
@@ -613,7 +696,7 @@ export default function FindOrdersScreen() {
           >
             <Text style={styles.refreshText}>{visibleOrders.length} pending</Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
       </View>
 
       {/* Radius pills */}
@@ -632,6 +715,24 @@ export default function FindOrdersScreen() {
           </TouchableOpacity>
         ))}
       </View>
+
+      {autoFindEnabled && visibleOrders.length === 0 && (
+        <View style={styles.waitingPanel}>
+          <Animated.Text style={[styles.waitingTitle, { opacity: blinkAnim }]}>
+            Searching...
+          </Animated.Text>
+          <TouchableOpacity
+            onPress={() => {
+              setAutoFindEnabled(false);
+              setQueueStartedAt(null);
+            }}
+            style={styles.waitingActionBtn}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.waitingActionText}>Stop</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {locationDenied && (
         <View style={styles.locationBanner}>
@@ -665,9 +766,18 @@ const styles = StyleSheet.create({
   title:            { fontSize: 22, fontWeight: '700', color: '#1A1A1A' },
   vehicleBadge:     { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: PRIMARY + '14', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
   vehicleBadgeText: { fontSize: 12, color: PRIMARY, fontWeight: '600' },
-  headerRight: { flexDirection: 'row', alignItems: 'center' },
+  headerRightScroll: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  autoFindBtn: { marginRight: 8, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#F0A92D', backgroundColor: '#fff' },
+  autoFindBtnActive: { backgroundColor: PRIMARY + '18' },
+  autoFindBtnText: { fontSize: 13, color: PRIMARY, fontWeight: '600' },
+  autoFindBtnTextActive: { color: PRIMARY },
   refreshBtn:  { backgroundColor: '#FEF5E6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   refreshText: { fontSize: 13, color: PRIMARY, fontWeight: '600' },
+
+  waitingPanel: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FFF8E1', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F0A92D' },
+  waitingTitle: { fontSize: 14, fontWeight: '700', color: '#92400E' },
+  waitingActionBtn: { backgroundColor: '#DC2626', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  waitingActionText: { color: '#fff', fontSize: 12, fontWeight: '700' },
 
   radiusRow:           { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#FAFAFA', borderBottomWidth: 1, borderBottomColor: '#EFEFEF', gap: 6 },
   radiusLabel:         { fontSize: 12, color: '#888', marginRight: 2 },
