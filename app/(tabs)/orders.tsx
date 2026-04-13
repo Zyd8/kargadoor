@@ -21,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
 
 import ActiveDeliveryModal from '@/components/ActiveDeliveryModal';
+import OrderChatModal from '@/components/order-chat-modal';
 import { useAuth } from '@/contexts/auth-context';
 import { CARTO_LIGHT_TILE_URL } from '@/lib/map-tiles';
 import { supabase } from '@/lib/supabase';
@@ -184,12 +185,16 @@ function OrderDetailModal({
   isDriver,
   onClose,
   onCancel,
+  onOpenChat,
+  canChat,
   isCancelling,
 }: {
   item: Package;
   isDriver: boolean;
   onClose: () => void;
   onCancel: (pkg: Package) => void;
+  onOpenChat: (pkg: Package) => void;
+  canChat: boolean;
   isCancelling: boolean;
 }) {
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
@@ -304,6 +309,13 @@ function OrderDetailModal({
             {item.ACCEPTED_AT ? <DetailRow label="Accepted" value={formatDate(item.ACCEPTED_AT)} /> : null}
             {item.COMPLETED_AT ? <DetailRow label="Completed" value={formatDate(item.COMPLETED_AT)} /> : null}
 
+            {canChat && (
+              <TouchableOpacity style={styles.chatBtn} onPress={() => onOpenChat(item)}>
+                <MaterialIcons name="chat-bubble-outline" size={18} color={PRIMARY} />
+                <Text style={styles.chatBtnText}>Message</Text>
+              </TouchableOpacity>
+            )}
+
             {/* Tracking Link Section - Only show for IN_PROGRESS orders */}
             {(item.TRACKING_TOKEN && item.STATUS === 'IN_PROGRESS') && (
               <View style={styles.trackingLinkSection}>
@@ -358,6 +370,7 @@ export default function OrdersScreen() {
   const [error, setError]           = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder]   = useState<Package | null>(null);
   const [activeDelivery, setActiveDelivery] = useState<Package | null>(null);
+  const [chatOrder, setChatOrder] = useState<Package | null>(null);
   const [cancellingId, setCancellingId]     = useState<string | null>(null);
 
   const handleCardPress = useCallback((pkg: Package) => {
@@ -518,7 +531,18 @@ export default function OrdersScreen() {
           isDriver={isDriver}
           onClose={() => setSelectedOrder(null)}
           onCancel={handleCancelOrder}
+          onOpenChat={(pkg) => setChatOrder(pkg)}
+          canChat={isDriver ? !!selectedOrder.SENDER_ID : !!selectedOrder.DRIVER_ID}
           isCancelling={cancellingId === selectedOrder.ID}
+        />
+      )}
+
+      {chatOrder && user && (
+        <OrderChatModal
+          visible={!!chatOrder}
+          orderId={chatOrder.ID}
+          myUserId={user.id}
+          onClose={() => setChatOrder(null)}
         />
       )}
 
@@ -614,4 +638,6 @@ const styles = StyleSheet.create({
   trackingLinkSubtext: { fontSize: 12, color: '#666', marginBottom: 12 },
   shareTrackingBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 10, paddingVertical: 12, borderWidth: 1, borderColor: PRIMARY },
   shareTrackingBtnText:{ fontSize: 14, fontWeight: '600', color: PRIMARY },
+  chatBtn:             { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 10, paddingVertical: 12, borderWidth: 1, borderColor: PRIMARY, marginTop: 12 },
+  chatBtnText:         { fontSize: 14, fontWeight: '700', color: PRIMARY },
 });

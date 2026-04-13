@@ -18,7 +18,10 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Dimensions,
   Modal,
+  PanResponder,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -26,6 +29,8 @@ import {
 } from 'react-native';
 import WebView from 'react-native-webview';
 
+import OrderChatModal from '@/components/order-chat-modal';
+import { useAuth } from '@/contexts/auth-context';
 import { CARTO_LIGHT_TILE_URL } from '@/lib/map-tiles';
 import { supabase } from '@/lib/supabase';
 import { useDeliveryRadius } from '@/hooks/use-delivery-radius';
@@ -263,6 +268,7 @@ export default function ActiveDeliveryModal({
   onClose,
   onDelivered,
 }: ActiveDeliveryModalProps) {
+  const { user } = useAuth();
   const webRef = useRef<WebView>(null);
   const geofenceKm = useDeliveryRadius();
 
@@ -278,6 +284,43 @@ export default function ActiveDeliveryModal({
   const [selectedDeliveryRouteIdx, setSelectedDeliveryRouteIdx] = useState<number | null>(null);
   const [submitting, setSubmitting]     = useState(false);
   const [delivered, setDelivered]       = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const { width: screenW, height: screenH } = Dimensions.get('window');
+  const fabPos = useRef(new Animated.ValueXY({ x: Math.max(8, screenW - 76), y: Math.max(140, screenH * 0.56) })).current;
+  const fabOffset = useRef({ x: Math.max(8, screenW - 76), y: Math.max(140, screenH * 0.56) });
+  const dragging = useRef(false);
+
+  const chatFabPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        dragging.current = false;
+      },
+      onPanResponderMove: (_, gesture) => {
+        if (Math.abs(gesture.dx) > 3 || Math.abs(gesture.dy) > 3) dragging.current = true;
+        fabPos.setValue({
+          x: fabOffset.current.x + gesture.dx,
+          y: fabOffset.current.y + gesture.dy,
+        });
+      },
+      onPanResponderRelease: (_, gesture) => {
+        const nextX = fabOffset.current.x + gesture.dx;
+        const nextY = fabOffset.current.y + gesture.dy;
+        const clampedX = Math.max(8, Math.min(nextX, screenW - 60));
+        const clampedY = Math.max(90, Math.min(nextY, screenH - 210));
+        fabOffset.current = { x: clampedX, y: clampedY };
+        Animated.spring(fabPos, {
+          toValue: { x: clampedX, y: clampedY },
+          useNativeDriver: false,
+          speed: 20,
+          bounciness: 6,
+        }).start();
+        // If it was a tap (not a drag), open chat.
+        if (!dragging.current) setChatOpen(true);
+      },
+    })
+  ).current;
 
   // Determine active destination based on phase
   const destLat = phase === 'pickup' ? pkg.PICKUP_LAT : pkg.DROPOFF_LAT;
@@ -568,6 +611,15 @@ export default function ActiveDeliveryModal({
           />
         )}
 
+        <Animated.View
+          style={[styles.chatFab, { transform: [{ translateX: fabPos.x }, { translateY: fabPos.y }] }]}
+          {...chatFabPanResponder.panHandlers}
+        >
+          <View style={styles.chatFabInner}>
+            <MaterialIcons name="chat-bubble-outline" size={22} color="#fff" />
+          </View>
+        </Animated.View>
+
         {/* Bottom panel */}
         {phase === 'pickup' ? (
           <View style={styles.bottomPanelPickup}>
@@ -661,6 +713,14 @@ export default function ActiveDeliveryModal({
           </View>
         )}
       </View>
+      {user && (
+        <OrderChatModal
+          visible={chatOpen}
+          orderId={pkg.ID}
+          myUserId={user.id}
+          onClose={() => setChatOpen(false)}
+        />
+      )}
     </Modal>
   );
 }
@@ -705,6 +765,28 @@ const styles = StyleSheet.create({
   },
   addrStripDelivery: { backgroundColor: '#FFF5F5', borderBottomColor: '#FDE8E8' },
   addrText: { fontSize: 13, color: '#555', flex: 1 },
+  chatFab: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.22,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 30,
+  },
+  chatFabInner: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: PRIMARY,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   map:       { flex: 1 },
   mapLoader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
