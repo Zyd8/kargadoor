@@ -34,6 +34,11 @@ const TOMTOM_KEY  = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Phase = 'pickup' | 'delivery';
+type RouteOption = {
+  points: [number, number][];
+  distanceKm: number;
+  travelMin: number;
+};
 
 export type ActiveDeliveryPackage = {
   ID: string;
@@ -87,6 +92,43 @@ async function fetchRoute(
     const pts: { latitude: number; longitude: number }[] =
       data?.routes?.[0]?.legs?.[0]?.points ?? [];
     return pts.map((p) => [p.latitude, p.longitude]);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchRouteAlternatives(
+  fromLat: number, fromLng: number,
+  toLat: number, toLng: number,
+): Promise<RouteOption[]> {
+  try {
+    const base =
+      `https://api.tomtom.com/routing/1/calculateRoute/` +
+      `${fromLat},${fromLng}:${toLat},${toLng}/json?key=${encodeURIComponent(TOMTOM_KEY)}&traffic=true`;
+
+    // Request up to 3 route choices (main + 2 alternatives).
+    let resp = await fetch(`${base}&maxAlternatives=2`);
+    if (!resp.ok) resp = await fetch(base);
+    if (!resp.ok) return [];
+
+    const data = await resp.json();
+    const routes = Array.isArray(data?.routes) ? data.routes.slice(0, 3) : [];
+
+    return routes
+      .map((r: any) => {
+        const pts: { latitude: number; longitude: number }[] = r?.legs?.[0]?.points ?? [];
+        const points = Array.isArray(pts) ? pts.map((p) => [p.latitude, p.longitude] as [number, number]) : [];
+        if (points.length < 2) return null;
+
+        const travelSec = Number(r?.summary?.travelTimeInSeconds ?? 0);
+        const meters = Number(r?.summary?.lengthInMeters ?? 0);
+        return {
+          points,
+          distanceKm: meters / 1000,
+          travelMin: Math.max(1, Math.round(travelSec / 60)),
+        } as RouteOption;
+      })
+      .filter((x: RouteOption | null): x is RouteOption => !!x);
   } catch {
     return [];
   }
@@ -232,6 +274,9 @@ export default function ActiveDeliveryModal({
   const [locLoading, setLocLoading]     = useState(true);
   const [insideRadius, setInsideRadius] = useState(false);
   const [distKm, setDistKm]             = useState<number | null>(null);
+  const [deliveryRoutes, setDeliveryRoutes] = useState<RouteOption[]>([]);
+  const [routesLoading, setRoutesLoading]   = useState(false);
+  const [selectedDeliveryRouteIdx, setSelectedDeliveryRouteIdx] = useState<number | null>(null);
   const [submitting, setSubmitting]     = useState(false);
   const [delivered, setDelivered]       = useState(false);
 
@@ -245,6 +290,9 @@ export default function ActiveDeliveryModal({
     setPhase(pkg.PICKUP_CONFIRMED_AT ? 'delivery' : 'pickup');
     setInsideRadius(false);
     setDistKm(null);
+    setDeliveryRoutes([]);
+    setRoutesLoading(false);
+    setSelectedDeliveryRouteIdx(null);
     setDelivered(false);
   }, [pkg.ID, pkg.PICKUP_CONFIRMED_AT]);
 
@@ -291,18 +339,47 @@ export default function ActiveDeliveryModal({
     return () => { posSub?.remove(); headSub?.remove(); };
   }, [visible]);
 
-  // Fetch + inject route whenever driver coords are available or phase changes
+  // Fetch + inject route whenever destination phase is ready.
   useEffect(() => {
     if (!driverCoords || !hasCoords) return;
     (async () => {
-      const points = await fetchRoute(driverCoords.lat, driverCoords.lng, destLat!, destLng!);
-      if (points.length > 0) {
+      if (phase === 'pickup') {
+        const points = await fetchRoute(driverCoords.lat, driverCoords.lng, destLat!, destLng!);
+        if (points.length > 0) {
+          webRef.current?.injectJavaScript(
+            `typeof drawRoute!=='undefined'&&drawRoute(${JSON.stringify(points)});true`
+          );
+        }
+        return;
+      }
+
+      setRoutesLoading(true);
+      const routes = await fetchRouteAlternatives(driverCoords.lat, driverCoords.lng, destLat!, destLng!);
+      setRoutesLoading(false);
+      setDeliveryRoutes(routes);
+
+      if (routes.length === 0) return;
+
+      // With multiple alternatives, force explicit selection.
+      if (routes.length === 1) {
+        setSelectedDeliveryRouteIdx(0);
         webRef.current?.injectJavaScript(
-          `typeof drawRoute!=='undefined'&&drawRoute(${JSON.stringify(points)});true`
+          `typeof drawRoute!=='undefined'&&drawRoute(${JSON.stringify(routes[0].points)});true`
         );
+      } else {
+        setSelectedDeliveryRouteIdx(null);
       }
     })();
-  }, [driverCoords, phase]);
+  }, [driverCoords, phase, hasCoords, destLat, destLng]);
+
+  const handleSelectDeliveryRoute = (idx: number) => {
+    const route = deliveryRoutes[idx];
+    if (!route) return;
+    setSelectedDeliveryRouteIdx(idx);
+    webRef.current?.injectJavaScript(
+      `typeof drawRoute!=='undefined'&&drawRoute(${JSON.stringify(route.points)});true`
+    );
+  };
 
   // Handle WebView messages (delivery phase geofence updates)
   const handleMessage = (event: { nativeEvent: { data: string } }) => {
@@ -520,6 +597,36 @@ export default function ActiveDeliveryModal({
             styles.bottomPanelDelivery,
             insideRadius ? styles.bottomPanelGreen : styles.bottomPanelAmber,
           ]}>
+            {routesLoading ? (
+              <View style={styles.routesChooser}>
+                <Text style={styles.routesChooserTitle}>Loading delivery routes...</Text>
+              </View>
+            ) : deliveryRoutes.length > 1 ? (
+              <View style={styles.routesChooser}>
+                <Text style={styles.routesChooserTitle}>Choose delivery route</Text>
+                <View style={styles.routesButtonsWrap}>
+                  {deliveryRoutes.map((r, idx) => {
+                    const active = selectedDeliveryRouteIdx === idx;
+                    return (
+                      <TouchableOpacity
+                        key={`route-${idx}`}
+                        style={[styles.routeBtn, active && styles.routeBtnActive]}
+                        onPress={() => handleSelectDeliveryRoute(idx)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.routeBtnText, active && styles.routeBtnTextActive]}>
+                          Route {idx + 1}
+                        </Text>
+                        <Text style={[styles.routeBtnSub, active && styles.routeBtnSubActive]}>
+                          {r.distanceKm.toFixed(1)} km • {r.travelMin} min
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
             {insideRadius ? (
               <>
                 <View style={styles.bottomRow}>
@@ -621,6 +728,15 @@ const styles = StyleSheet.create({
   bottomPanelAmber:     { backgroundColor: '#FFFBEB', borderTopColor: '#FDE68A' },
   bottomTextGreen:      { fontSize: 14, fontWeight: '600', color: PRIMARY, flex: 1 },
   bottomTextAmber:      { fontSize: 14, fontWeight: '500', color: '#92400E', flex: 1 },
+  routesChooser:        { marginBottom: 12 },
+  routesChooserTitle:   { fontSize: 13, fontWeight: '700', color: '#1A1A1A', marginBottom: 8 },
+  routesButtonsWrap:    { flexDirection: 'row', gap: 8 },
+  routeBtn:             { flex: 1, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#fff', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10 },
+  routeBtnActive:       { borderColor: PRIMARY, backgroundColor: '#FEF5E6' },
+  routeBtnText:         { fontSize: 12, fontWeight: '700', color: '#444' },
+  routeBtnTextActive:   { color: PRIMARY },
+  routeBtnSub:          { fontSize: 11, color: '#6B7280', marginTop: 2 },
+  routeBtnSubActive:    { color: '#B7791F' },
 
   bottomRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
 

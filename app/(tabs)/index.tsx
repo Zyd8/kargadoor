@@ -23,7 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import LocationPicker, { LocationValue } from '@/components/location-picker';
 import { useAuth } from '@/contexts/auth-context';
-import { getBackendVehicleType, BACKEND_TO_APP_VEHICLES, type PricingRow } from '@/lib/pricing';
+import { buildVehicleOptionsFromPricing, type PricingRow, type VehicleOption } from '@/lib/pricing';
 import { supabase } from '@/lib/supabase';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -119,12 +119,6 @@ type RecentOrder    = { ID: string; STATUS: string | null };
 type DriverStats    = { totalDeliveries: number; totalEarnings: number; inProgressCount: number; cancelledCount: number };
 type ActiveDelivery = { ID: string; PICKUP_ADDRESS: string | null; RECIPIENT_ADDRESS: string | null; RECIPIENT_NAME: string | null; RECIPIENT_NUMBER: string | null; PRICE: number | null };
 
-type VehicleOption = {
-  id: string; emoji: string; label: string;
-  sub: string; capacity: string; eta: string;
-  basePrice: number; tag?: string; tagColor?: string;
-};
-
 type AddOn = {
   id: string;
   icon: keyof typeof MaterialIcons.glyphMap;
@@ -145,17 +139,6 @@ const ITEM_TYPES = [
 ];
 
 // ── Data ─────────────────────────────────────────────────────────────────────
-const VEHICLES: VehicleOption[] = [
-  { id: 'bike',     emoji: '🚲', label: 'Bike',           sub: 'Eco-friendly',    capacity: 'Up to 3 kg',   eta: '~10 min', basePrice: 40,  tag: 'ECO',  tagColor: '#22C55E' },
-  { id: 'ebike',    emoji: '⚡', label: 'E-Bike / E-Trike', sub: 'Electric motor', capacity: 'Up to 10 kg',  eta: '~12 min', basePrice: 55,  tag: 'ECO',  tagColor: '#22C55E' },
-  { id: 'moto',     emoji: '🏍️', label: 'Motorcycle',     sub: 'Fast & agile',    capacity: 'Up to 15 kg',  eta: '~15 min', basePrice: 70 },
-  { id: 'sedan',    emoji: '🚗', label: 'Sedan',           sub: 'Comfortable',     capacity: 'Up to 30 kg',  eta: '~18 min', basePrice: 120, tag: 'MED',  tagColor: '#3B82F6' },
-  { id: 'suv',      emoji: '🚙', label: 'SUV / Small Van', sub: 'Spacious ride',   capacity: 'Up to 60 kg',  eta: '~20 min', basePrice: 180 },
-  { id: 'pickup',   emoji: '🛻', label: 'Pickup',          sub: 'Open bed haul',   capacity: 'Up to 150 kg', eta: '~25 min', basePrice: 280 },
-  { id: 'cargovan', emoji: '🚐', label: 'Cargo Van',       sub: 'Enclosed cargo',  capacity: 'Up to 300 kg', eta: '~30 min', basePrice: 400 },
-  { id: 'truck',    emoji: '🚚', label: 'Truck',           sub: 'Heavy freight',   capacity: '300 kg+',      eta: '~45 min', basePrice: 650, tag: 'BIG',  tagColor: '#EF4444' },
-];
-
 const ADD_ONS: AddOn[] = [
   {
     id: 'buyforme', icon: 'shopping-bag',
@@ -293,6 +276,7 @@ function BookingForm() {
   const [selected,     setSelected]     = useState<string | null>(null);
   const [activeAddOns, setActiveAddOns] = useState<Set<string>>(new Set());
   const [pricingData,  setPricingData]  = useState<Record<string, PricingRow>>({});
+  const [availableVehicles, setAvailableVehicles] = useState<VehicleOption[]>([]);
   const [estimatedPrice, setEstimatedPrice] = useState<number | null>(null);
   const [routeMeta, setRouteMeta] = useState<{ distanceKm: number; durationMin: number } | null>(null);
   const [pricingLoaded, setPricingLoaded] = useState(false);
@@ -310,7 +294,7 @@ function BookingForm() {
 
   const addOnAnim = useRef(new Animated.Value(0)).current;
 
-  const selectedVehicle = VEHICLES.find(v => v.id === selected);
+  const selectedVehicle = availableVehicles.find(v => v.id === selected);
   const canContinue =
     pickup.address.trim().length > 0 &&
     dropoff.address.trim().length > 0 &&
@@ -320,8 +304,8 @@ function BookingForm() {
 
   const getBasePrice = useCallback((vehicleId: string | null) => {
     if (!vehicleId) return 0;
-    return pricingData[vehicleId]?.baseFare ?? VEHICLES.find(v => v.id === vehicleId)?.basePrice ?? 0;
-  }, [pricingData]);
+    return pricingData[vehicleId]?.baseFare ?? availableVehicles.find(v => v.id === vehicleId)?.basePrice ?? 0;
+  }, [pricingData, availableVehicles]);
 
   const totalPrice = getBasePrice(selectedVehicle?.id ?? null) + addOnTotal;
   const finalEstimated =
@@ -330,12 +314,6 @@ function BookingForm() {
       : totalPrice;
 
   const etaLabel = routeMeta?.durationMin != null ? `~${routeMeta.durationMin} min` : selectedVehicle?.eta;
-
-  const availableVehicles = useMemo(() => {
-    if (!pricingLoaded) return [];
-    const keys = new Set(Object.keys(pricingData));
-    return VEHICLES.filter(v => keys.has(v.id));
-  }, [pricingLoaded, pricingData]);
 
   function selectVehicle(id: string) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -357,17 +335,18 @@ function BookingForm() {
         .from('PRICING_CONFIG')
         .select('VEHICLE_TYPE, BASE_FARE, PER_KM_RATE');
       if (!error && data) {
-        const byAppId: Record<string, PricingRow> = {};
+        const byType: Record<string, PricingRow> = {};
+        const rows: PricingRow[] = [];
         data.forEach((row: { VEHICLE_TYPE: string; BASE_FARE: number; PER_KM_RATE: number }) => {
-          const backendType = row.VEHICLE_TYPE?.trim();
+          const backendType = row.VEHICLE_TYPE?.trim() ?? '';
+          if (!backendType) return;
           const baseFare = Number(row.BASE_FARE) || 0;
           const perKmRate = Number(row.PER_KM_RATE) || 0;
-          const appIds = BACKEND_TO_APP_VEHICLES[backendType] ?? (backendType ? [backendType] : []);
-          appIds.forEach((appId) => {
-            byAppId[appId] = { baseFare, perKmRate };
-          });
+          byType[backendType] = { vehicleType: backendType, baseFare, perKmRate };
+          rows.push({ vehicleType: backendType, baseFare, perKmRate });
         });
-        setPricingData(byAppId);
+        setPricingData(byType);
+        setAvailableVehicles(buildVehicleOptionsFromPricing(rows));
       }
       setPricingLoaded(true);
     })();
@@ -402,7 +381,7 @@ function BookingForm() {
     let mounted = true;
     (async () => {
       try {
-        const backendVehicleType = getBackendVehicleType(selected) ?? selected;
+        const backendVehicleType = selected;
         const travelMode = tomtomTravelModeForBackendVehicleType(backendVehicleType);
         const summary = await fetchTomTomRouteSummary({
           pickupLat: pickup.lat!,
@@ -437,7 +416,7 @@ function BookingForm() {
         setEstimatedPrice(data != null ? Number(data) : null);
       } catch (error) {
         console.error('Error fetching delivery quote:', error);
-        const backendVehicleType = getBackendVehicleType(selected) ?? selected;
+        const backendVehicleType = selected;
         const { data } = await supabase.rpc('get_delivery_quote', {
           p_vehicle_type: backendVehicleType,
           p_pickup_lat:   pickup.lat,
@@ -471,7 +450,7 @@ function BookingForm() {
     }
 
     setSubmitting(true);
-    const backendVehicleType = getBackendVehicleType(selected) ?? selected;
+    const backendVehicleType = selected;
     const { error } = await supabase.rpc('insert_package', {
       p_sender_id:        user.id,
       p_pickup_address:   pickup.address.trim(),

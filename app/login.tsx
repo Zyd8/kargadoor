@@ -1,10 +1,11 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Image } from 'expo-image';
 import { Link, router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -27,7 +28,21 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
@@ -46,11 +61,21 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.root}>
-      {/* Brand header — stays fixed when keyboard opens */}
-      <View style={[styles.header, { paddingTop: insets.top + 28 }]}>
-        <Image source={require('../assets/images/kargadoor_white_logo.png')} style={styles.logoImg} contentFit="contain" />
+      {/* Brand header collapses with keyboard so inputs keep visible space */}
+      <View
+        style={[
+          styles.header,
+          keyboardVisible ? styles.headerCompact : null,
+          { paddingTop: keyboardVisible ? insets.top + 8 : insets.top + 28 },
+        ]}
+      >
+        <Image
+          source={require('../assets/images/kargadoor_white_logo.png')}
+          style={[styles.logoImg, keyboardVisible ? styles.logoImgCompact : null]}
+          contentFit="contain"
+        />
         
-        <Text style={styles.brandTagline}>Logistics made simple</Text>
+        {!keyboardVisible && <Text style={styles.brandTagline}>Logistics made simple</Text>}
       </View>
 
       {/* KAV wraps only the white card so header stays put */}
@@ -137,7 +162,9 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   root:         { flex: 1, backgroundColor: PRIMARY },
   header:       { alignItems: 'center', paddingHorizontal: 24, paddingBottom: 52 },
+  headerCompact:{ paddingBottom: 12 },
   logoImg:      { width: 280, height: 280, marginBottom: -24 },
+  logoImgCompact:{ width: 180, height: 120, marginBottom: 0 },
   brandName:    { fontSize: 26, fontWeight: '800', color: '#fff', letterSpacing: 3, marginBottom: 4 },
   brandTagline: { fontSize: 16, color: '#fff' },
   kav:          { flex: 1 },

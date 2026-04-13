@@ -32,9 +32,6 @@ type VehicleRow = {
   IS_ACTIVE: boolean;
 };
 
-// Fallback when PRICING_CONFIG is not loaded yet
-const DEFAULT_VEHICLE_TYPES = ['motorcycle', 'car', 'truck'];
-
 const VEHICLE_ICON: Record<string, React.ComponentProps<typeof MaterialIcons>['name']> = {
   bike: 'directions-bike',
   motorcycle: 'two-wheeler',
@@ -57,7 +54,7 @@ function base64ToBytes(base64: string): Uint8Array {
 // ── Multi-vehicle section ────────────────────────────────────────────────────
 function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; horizontalPadding?: number }) {
   const [vehicles, setVehicles]   = useState<VehicleRow[]>([]);
-  const [vehicleTypes, setVehicleTypes] = useState<string[]>(DEFAULT_VEHICLE_TYPES);
+  const [vehicleTypes, setVehicleTypes] = useState<string[]>([]);
   const [loading, setLoading]     = useState(true);
   const [addingNew, setAddingNew] = useState(false);
   const [saving, setSaving]       = useState(false);
@@ -67,7 +64,7 @@ function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; ho
   // Add-new form state
   const [plate, setPlate] = useState('');
   const [model, setModel] = useState('');
-  const [type, setType]   = useState<string>('motorcycle');
+  const [type, setType]   = useState<string>('');
 
   // Fetch vehicle types from PRICING_CONFIG so driver can only choose types that exist in DB
   useEffect(() => {
@@ -167,6 +164,10 @@ function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; ho
   };
 
   const handleAddVehicle = async () => {
+    if (!type) {
+      Alert.alert('No vehicle types', 'No vehicle types are configured in PRICING_CONFIG yet.');
+      return;
+    }
     setSaving(true);
     const { data, error } = await supabase.rpc('upsert_vehicle', {
       p_driver_id: userId,
@@ -184,7 +185,7 @@ function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; ho
     }
 
     setAddingNew(false);
-    setPlate(''); setModel(''); setType('motorcycle');
+    setPlate(''); setModel(''); setType(vehicleTypes[0] ?? '');
     fetchVehicles();
   };
 
