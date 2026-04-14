@@ -13,6 +13,8 @@ export interface Profile {
   // Added via migration
   IS_APPROVED?: boolean | null
   DRIVER_STATUS?: 'PENDING' | 'APPROVED' | 'REJECTED' | null
+  DRIVER_LICENSE_URL?: string | null
+  DRIVER_OR_CR_URL?: string | null
 }
 
 export interface Package {
@@ -52,6 +54,7 @@ export interface Vehicle {
   IS_ACTIVE: boolean
   // Added via migration
   IS_APPROVED?: boolean | null
+  REGISTRATION_DOC_URL?: string | null
   // Joined
   driver?: Profile | null
 }

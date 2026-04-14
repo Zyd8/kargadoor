@@ -87,7 +87,7 @@ export default function Dashboard() {
     setLoading(true)
     try {
       const [profilesRes, packagesRes, recentRes, vehiclesRes] = await Promise.all([
-        supabase.from('PROFILE').select('ROLE'),
+        supabase.from('PROFILE').select('ROLE, IS_APPROVED'),
         supabase.from('PACKAGES').select('STATUS, PRICE'),
         supabase.from('PACKAGES').select('ID, STATUS, PRICE, VEHICLE_TYPE, CREATED_AT, PICKUP_ADDRESS, RECIPIENT_ADDRESS').order('CREATED_AT', { ascending: false }).limit(8),
         supabase.from('VEHICLE').select('IS_APPROVED, IS_ACTIVE'),

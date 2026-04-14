@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Search, RefreshCw, ShieldCheck, ShieldX, ShieldAlert, AlertCircle, Truck } from 'lucide-react'
+import { Search, RefreshCw, ShieldCheck, ShieldX, ShieldAlert, AlertCircle, Truck, FileText } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Profile } from '@/types'
 import { useToast } from '@/components/ui/use-toast'
@@ -10,23 +10,6 @@ function Avatar({ name }: { name?: string | null }) {
     ? name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
     : 'D'
   return <div className="driver-avatar">{initials}</div>
-}
-
-// ── Approval toggle ────────────────────────────────────────────────────────────
-function ApprovalToggle({
-  approved, disabled, onChange,
-}: { approved: boolean; disabled?: boolean; onChange: () => void }) {
-  return (
-    <button
-      className={`approval-toggle${approved ? ' approval-toggle--on' : ''}`}
-      disabled={disabled}
-      onClick={onChange}
-      role="switch"
-      aria-checked={approved}
-    >
-      <span className="approval-toggle__thumb" />
-    </button>
-  )
 }
 
 // ── Main ───────────────────────────────────────────────────────────────────────
@@ -65,14 +48,13 @@ export default function Drivers() {
     setLoading(false)
   }
 
-  async function toggleApproval(driverId: string, currentValue: boolean) {
+  async function setApproval(driverId: string, approved: boolean) {
     setToggling(driverId)
-    const newValue = !currentValue
-    const { error } = await supabase.from('PROFILE').update({ IS_APPROVED: newValue }).eq('ID', driverId)
+    const { error } = await supabase.from('PROFILE').update({ IS_APPROVED: approved }).eq('ID', driverId)
     if (error) { toast({ variant: 'destructive', title: 'Error', description: error.message }) }
     else {
-      toast({ title: newValue ? 'Driver approved' : 'Driver unapproved' } as any)
-      setDrivers(prev => prev.map(d => d.ID === driverId ? { ...d, IS_APPROVED: newValue } : d))
+      toast({ title: approved ? 'Driver accepted' : 'Driver rejected' } as any)
+      setDrivers(prev => prev.map(d => d.ID === driverId ? { ...d, IS_APPROVED: approved } : d))
     }
     setToggling(null)
   }
@@ -273,33 +255,38 @@ export default function Drivers() {
         .appr-badge--pending  { color: var(--amber); background: var(--amber-bg); }
         .appr-badge--na       { color: var(--gray-500); background: var(--gray-100); }
 
-        /* Toggle switch */
-        .approval-toggle {
-          position: relative; width: 42px; height: 24px;
-          background: var(--gray-200); border: none; border-radius: 100px;
-          cursor: pointer; transition: background 0.2s;
-          flex-shrink: 0;
+        .docs-cell {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          min-width: 160px;
         }
-        .approval-toggle--on { background: var(--green); }
-        .approval-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
-
-        .approval-toggle__thumb {
-          position: absolute; top: 3px; left: 3px;
-          width: 18px; height: 18px; border-radius: 50%;
+        .doc-link {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 12px;
+          color: var(--orange-dark);
+          text-decoration: none;
+          font-weight: 600;
+        }
+        .doc-link:hover { text-decoration: underline; }
+        .action-cell { display: flex; gap: 8px; align-items: center; }
+        .action-btn {
+          border: 1px solid var(--gray-200);
+          border-radius: 8px;
           background: var(--white);
-          box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-          transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1);
+          font-size: 11px;
+          font-family: 'Syne', sans-serif;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+          font-weight: 700;
+          padding: 7px 10px;
+          cursor: pointer;
         }
-        .approval-toggle--on .approval-toggle__thumb { transform: translateX(18px); }
-
-        /* Toggle label */
-        .toggle-cell { display: flex; align-items: center; gap: 9px; }
-        .toggle-label {
-          font-size: 12px; font-weight: 600; font-family: 'Syne', sans-serif;
-          letter-spacing: 0.03em; color: var(--gray-500);
-          transition: color 0.2s;
-        }
-        .toggle-label--on { color: var(--green); }
+        .action-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+        .action-btn--accept { color: var(--green); border-color: #A7F3D0; background: #F0FDF4; }
+        .action-btn--reject { color: var(--red); border-color: #FECACA; background: #FEF2F2; }
 
         /* Empty / skeleton */
         .empty-row td { padding: 52px 24px; text-align: center; color: var(--gray-400); font-size: 13.5px; }
@@ -423,7 +410,8 @@ export default function Drivers() {
                   <th>Email</th>
                   <th>Phone</th>
                   <th>Status</th>
-                  <th>Approve</th>
+                  <th>Documents</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -435,7 +423,7 @@ export default function Drivers() {
                         <span className="skel" style={{ height: 14, width: '70%' }} />
                       </div>
                     </td>
-                    {[80, 60, 70, 42].map((w, j) => (
+                    {[80, 60, 70, 42, 80].map((w, j) => (
                       <td key={j}><span className="skel" style={{ height: 14, width: `${w}%` }} /></td>
                     ))}
                   </tr>
@@ -443,7 +431,7 @@ export default function Drivers() {
 
                 {!loading && filtered.length === 0 && (
                   <tr className="empty-row">
-                    <td colSpan={5}>
+                    <td colSpan={6}>
                       <div className="empty-icon"><Truck size={18} /></div>
                       No drivers found
                     </td>
@@ -476,15 +464,39 @@ export default function Drivers() {
                         )}
                       </td>
                       <td>
-                        <div className="toggle-cell">
-                          <ApprovalToggle
-                            approved={approved}
-                            disabled={!hasApprovalColumn || toggling === driver.ID}
-                            onChange={() => toggleApproval(driver.ID, approved)}
-                          />
-                          <span className={`toggle-label${approved ? ' toggle-label--on' : ''}`}>
-                            {approved ? 'Active' : 'Inactive'}
-                          </span>
+                        <div className="docs-cell">
+                          {driver.DRIVER_LICENSE_URL ? (
+                            <a className="doc-link" href={driver.DRIVER_LICENSE_URL} target="_blank" rel="noreferrer">
+                              <FileText size={12} /> Driver License
+                            </a>
+                          ) : (
+                            <span className="muted">No license file</span>
+                          )}
+                          {driver.DRIVER_OR_CR_URL ? (
+                            <a className="doc-link" href={driver.DRIVER_OR_CR_URL} target="_blank" rel="noreferrer">
+                              <FileText size={12} /> OR/CR
+                            </a>
+                          ) : (
+                            <span className="muted">No OR/CR file</span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="action-cell">
+                          <button
+                            className="action-btn action-btn--accept"
+                            disabled={!hasApprovalColumn || toggling === driver.ID || approved}
+                            onClick={() => setApproval(driver.ID, true)}
+                          >
+                            Accept
+                          </button>
+                          <button
+                            className="action-btn action-btn--reject"
+                            disabled={!hasApprovalColumn || toggling === driver.ID || !approved}
+                            onClick={() => setApproval(driver.ID, false)}
+                          >
+                            Reject
+                          </button>
                         </div>
                       </td>
                     </tr>

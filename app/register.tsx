@@ -1,4 +1,5 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -29,6 +30,13 @@ function base64ToBytes(base64: string): Uint8Array {
 
 const PRIMARY = '#f0a92d';
 const PLACEHOLDER = '#A0A0A0';
+const DRIVER_DOCUMENT_BUCKET = 'driver-documents';
+
+type PickedDocument = {
+  uri: string;
+  name: string;
+  mimeType: string;
+};
 
 export default function RegisterScreen() {
   const { signUp } = useAuth();
@@ -41,12 +49,9 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [avatarBase64, setAvatarBase64] = useState<string | null>(null);
+  const [licenseFile, setLicenseFile] = useState<PickedDocument | null>(null);
+  const [orCrFile, setOrCrFile] = useState<PickedDocument | null>(null);
   const insets = useSafeAreaInsets();
-
-  const handlePhoneChange = (text: string) => {
-    const digits = text.replace(/\D/g, '').substring(0, 10);
-    setPhone(digits);
-  };
 
   const handlePickAvatar = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -60,6 +65,43 @@ export default function RegisterScreen() {
       setAvatarUri(result.assets[0].uri);
       setAvatarBase64(result.assets[0].base64 ?? null);
     }
+  };
+
+  const pickDocument = async (
+    title: string,
+    onPicked: (file: PickedDocument) => void
+  ) => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'image/jpeg', 'image/png'],
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
+    if (result.canceled || !result.assets[0]) {
+      return;
+    }
+    const asset = result.assets[0];
+    onPicked({
+      uri: asset.uri,
+      name: asset.name ?? `${title.replace(/\s+/g, '_').toLowerCase()}.pdf`,
+      mimeType: asset.mimeType ?? 'application/octet-stream',
+    });
+  };
+
+  const uploadDocument = async (userId: string, file: PickedDocument, label: string) => {
+    const ext = file.name.includes('.') ? file.name.split('.').pop() : 'bin';
+    const objectPath = `${userId}/${label}-${Date.now()}.${ext}`;
+    const response = await fetch(file.uri);
+    const arrayBuffer = await response.arrayBuffer();
+    const { error: uploadErr } = await supabase.storage
+      .from(DRIVER_DOCUMENT_BUCKET)
+      .upload(objectPath, arrayBuffer, {
+        contentType: file.mimeType,
+        upsert: true,
+      });
+    if (uploadErr) {
+      throw uploadErr;
+    }
+    return supabase.storage.from(DRIVER_DOCUMENT_BUCKET).getPublicUrl(objectPath).data.publicUrl;
   };
 
   const handleRegister = async () => {
@@ -77,6 +119,10 @@ export default function RegisterScreen() {
     }
     if (!/^\+63\d{10}$/.test(phone)) {
       Alert.alert('Error', 'Phone number must be in format +63XXXXXXXXXX.');
+      return;
+    }
+    if (role === 'DRIVER' && (!licenseFile || !orCrFile)) {
+      Alert.alert('Error', 'Drivers must upload Driver License and OR/CR before signing up.');
       return;
     }
     setLoading(true);
@@ -102,6 +148,30 @@ export default function RegisterScreen() {
           }
         }
       } catch { /* ignore */ }
+    }
+
+    if (userId && role === 'DRIVER' && licenseFile && orCrFile) {
+      try {
+        const [licenseUrl, orCrUrl] = await Promise.all([
+          uploadDocument(userId, licenseFile, 'license'),
+          uploadDocument(userId, orCrFile, 'orcr'),
+        ]);
+        await supabase
+          .from('PROFILE')
+          .update({
+            DRIVER_LICENSE_URL: licenseUrl,
+            DRIVER_OR_CR_URL: orCrUrl,
+            IS_APPROVED: false,
+          })
+          .eq('ID', userId);
+      } catch (err: any) {
+        setLoading(false);
+        Alert.alert(
+          'Upload failed',
+          err?.message ?? 'Your account was created, but required driver documents failed to upload. Please contact support.'
+        );
+        return;
+      }
     }
 
     setLoading(false);
@@ -258,6 +328,35 @@ export default function RegisterScreen() {
             {role === 'DRIVER' ? 'You will be able to accept and deliver orders.' : 'You will be able to create delivery orders.'}
           </Text>
 
+          {role === 'DRIVER' && (
+            <View style={styles.docsWrap}>
+              <Text style={styles.docsTitle}>Required Driver Documents</Text>
+              <TouchableOpacity
+                style={styles.docBtn}
+                onPress={() => pickDocument('Driver License', setLicenseFile)}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons name="upload-file" size={18} color={PRIMARY} />
+                <Text style={styles.docBtnText}>
+                  {licenseFile ? `License: ${licenseFile.name}` : 'Upload Driver License'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.docBtn}
+                onPress={() => pickDocument('OR CR', setOrCrFile)}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons name="upload-file" size={18} color={PRIMARY} />
+                <Text style={styles.docBtnText}>
+                  {orCrFile ? `OR/CR: ${orCrFile.name}` : 'Upload OR/CR Document'}
+                </Text>
+              </TouchableOpacity>
+              <Text style={styles.docsHint}>Accepted: PDF, JPG, PNG</Text>
+            </View>
+          )}
+
           <TouchableOpacity
             style={[styles.btn, loading && styles.btnDisabled]}
             onPress={handleRegister}
@@ -305,4 +404,9 @@ const styles = StyleSheet.create({
   avatarImg:     { width: 80, height: 80, borderRadius: 40 },
   avatarCamBadge:{ position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderRadius: 12, backgroundColor: PRIMARY, alignItems: 'center', justifyContent: 'center' },
   avatarHint:    { textAlign: 'center', fontSize: 12, color: '#AAA', marginBottom: 16 },
+  docsWrap:      { marginTop: 4, marginBottom: 8 },
+  docsTitle:     { fontSize: 12, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
+  docBtn:        { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: '#E8DCC8', borderRadius: 10, backgroundColor: '#FFFAF2', paddingHorizontal: 12, paddingVertical: 11, marginBottom: 8 },
+  docBtnText:    { flex: 1, fontSize: 13, color: '#5F4A2A', fontWeight: '600' },
+  docsHint:      { fontSize: 11, color: '#AAA', marginBottom: 2 },
 });

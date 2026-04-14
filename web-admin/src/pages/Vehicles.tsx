@@ -1,26 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Search, RefreshCw, CheckCircle, XCircle, AlertCircle, Car } from 'lucide-react'
+import { Search, RefreshCw, CheckCircle, XCircle, AlertCircle, Car, FileText } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Vehicle } from '@/types'
 import { VEHICLE_EMOJIS } from '@/lib/utils'
 import { useToast } from '@/components/ui/use-toast'
-
-// ── Approval toggle (reused pattern) ──────────────────────────────────────────
-function ApprovalToggle({
-  approved, disabled, onChange,
-}: { approved: boolean; disabled?: boolean; onChange: () => void }) {
-  return (
-    <button
-      className={`approval-toggle${approved ? ' approval-toggle--on' : ''}`}
-      disabled={disabled}
-      onClick={onChange}
-      role="switch"
-      aria-checked={approved}
-    >
-      <span className="approval-toggle__thumb" />
-    </button>
-  )
-}
 
 // ── Main ───────────────────────────────────────────────────────────────────────
 export default function Vehicles() {
@@ -63,14 +46,13 @@ export default function Vehicles() {
     setLoading(false)
   }
 
-  async function toggleApproval(vehicleId: string, current: boolean) {
+  async function setApproval(vehicleId: string, approved: boolean) {
     setToggling(vehicleId)
-    const newValue = !current
-    const { error } = await supabase.from('VEHICLE').update({ IS_APPROVED: newValue }).eq('ID', vehicleId)
+    const { error } = await supabase.from('VEHICLE').update({ IS_APPROVED: approved }).eq('ID', vehicleId)
     if (error) { toast({ variant: 'destructive', title: 'Error', description: error.message }) }
     else {
-      toast({ title: newValue ? 'Vehicle approved' : 'Vehicle unapproved' } as any)
-      setVehicles(prev => prev.map(v => v.ID === vehicleId ? { ...v, IS_APPROVED: newValue } : v))
+      toast({ title: approved ? 'Vehicle accepted' : 'Vehicle rejected' } as any)
+      setVehicles(prev => prev.map(v => v.ID === vehicleId ? { ...v, IS_APPROVED: approved } : v))
     }
     setToggling(null)
   }
@@ -303,28 +285,32 @@ export default function Vehicles() {
         .status-badge--pending  { color: var(--amber); background: var(--amber-bg); }
         .status-badge--na       { color: var(--gray-500); background: var(--gray-100); }
 
-        /* Toggle */
-        .approval-toggle {
-          position: relative; width: 42px; height: 24px;
-          background: var(--gray-200); border: none; border-radius: 100px;
-          cursor: pointer; transition: background 0.2s; flex-shrink: 0;
+        .docs-link {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 12px;
+          color: var(--orange-dark);
+          text-decoration: none;
+          font-weight: 600;
         }
-        .approval-toggle--on { background: var(--green); }
-        .approval-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
-        .approval-toggle__thumb {
-          position: absolute; top: 3px; left: 3px;
-          width: 18px; height: 18px; border-radius: 50%;
-          background: var(--white); box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-          transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1);
+        .docs-link:hover { text-decoration: underline; }
+        .action-cell { display: flex; gap: 8px; align-items: center; }
+        .action-btn {
+          border: 1px solid var(--gray-200);
+          border-radius: 8px;
+          background: var(--white);
+          font-size: 11px;
+          font-family: 'Syne', sans-serif;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+          font-weight: 700;
+          padding: 7px 10px;
+          cursor: pointer;
         }
-        .approval-toggle--on .approval-toggle__thumb { transform: translateX(18px); }
-
-        .toggle-cell { display: flex; align-items: center; gap: 9px; }
-        .toggle-label {
-          font-size: 12px; font-weight: 600; font-family: 'Syne', sans-serif;
-          letter-spacing: 0.03em; color: var(--gray-400); transition: color 0.2s;
-        }
-        .toggle-label--on { color: var(--green); }
+        .action-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+        .action-btn--accept { color: var(--green); border-color: #A7F3D0; background: #F0FDF4; }
+        .action-btn--reject { color: #DC2626; border-color: #FECACA; background: #FEF2F2; }
 
         /* Empty / skeleton */
         .empty-row td { padding: 52px 24px; text-align: center; color: var(--gray-400); font-size: 13.5px; }
@@ -481,7 +467,8 @@ export default function Vehicles() {
                   <th>Driver</th>
                   <th>Active</th>
                   <th>Approval</th>
-                  <th>Toggle</th>
+                  <th>Document</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -493,7 +480,7 @@ export default function Vehicles() {
                         <span className="skel" style={{ height: 14, width: 80 }} />
                       </div>
                     </td>
-                    {[60, 70, 90, 55, 64, 42].map((w, j) => (
+                    {[60, 70, 90, 55, 64, 90, 42].map((w, j) => (
                       <td key={j}><span className="skel" style={{ height: 14, width: w }} /></td>
                     ))}
                   </tr>
@@ -501,7 +488,7 @@ export default function Vehicles() {
 
                 {!loading && filtered.length === 0 && (
                   <tr className="empty-row">
-                    <td colSpan={7}>
+                    <td colSpan={8}>
                       <div className="empty-icon"><Car size={18} /></div>
                       No vehicles found
                     </td>
@@ -577,15 +564,30 @@ export default function Vehicles() {
 
                       {/* Toggle */}
                       <td>
-                        <div className="toggle-cell">
-                          <ApprovalToggle
-                            approved={approved}
-                            disabled={!hasApprovalColumn || toggling === vehicle.ID}
-                            onChange={() => toggleApproval(vehicle.ID, approved)}
-                          />
-                          <span className={`toggle-label${approved ? ' toggle-label--on' : ''}`}>
-                            {approved ? 'Approved' : 'Pending'}
-                          </span>
+                        {vehicle.REGISTRATION_DOC_URL ? (
+                          <a className="docs-link" href={vehicle.REGISTRATION_DOC_URL} target="_blank" rel="noreferrer">
+                            <FileText size={12} /> Open file
+                          </a>
+                        ) : (
+                          <span className="muted">No file</span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="action-cell">
+                          <button
+                            className="action-btn action-btn--accept"
+                            disabled={!hasApprovalColumn || toggling === vehicle.ID || approved}
+                            onClick={() => setApproval(vehicle.ID, true)}
+                          >
+                            Accept
+                          </button>
+                          <button
+                            className="action-btn action-btn--reject"
+                            disabled={!hasApprovalColumn || toggling === vehicle.ID || !approved}
+                            onClick={() => setApproval(vehicle.ID, false)}
+                          >
+                            Reject
+                          </button>
                         </div>
                       </td>
                     </tr>

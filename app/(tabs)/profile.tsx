@@ -1,4 +1,5 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -30,6 +31,8 @@ type VehicleRow = {
   MODEL: string | null;
   TYPE: string | null;
   IS_ACTIVE: boolean;
+  IS_APPROVED?: boolean | null;
+  REGISTRATION_DOC_URL?: string | null;
 };
 
 const VEHICLE_ICON: Record<string, React.ComponentProps<typeof MaterialIcons>['name']> = {
@@ -65,6 +68,18 @@ function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; ho
   const [plate, setPlate] = useState('');
   const [model, setModel] = useState('');
   const [type, setType]   = useState<string>('');
+  const [registrationDoc, setRegistrationDoc] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
+
+  const loadVehicles = async () => {
+    const { data, error } = await supabase
+      .from('VEHICLE')
+      .select('ID, DRIVER_ID, PLATE, MODEL, TYPE, IS_ACTIVE, IS_APPROVED, REGISTRATION_DOC_URL')
+      .eq('DRIVER_ID', userId);
+    if (error) {
+      return [];
+    }
+    return (data ?? []) as VehicleRow[];
+  };
 
   // Fetch vehicle types from PRICING_CONFIG so driver can only choose types that exist in DB
   useEffect(() => {
@@ -76,16 +91,13 @@ function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; ho
       if (!error && data?.length) {
         const types = data.map((r: { VEHICLE_TYPE: string }) => r.VEHICLE_TYPE.trim()).filter(Boolean);
         setVehicleTypes(types);
-        if (types.length && !types.includes(type)) {
-          setType(types[0]);
-        }
+        setType((prev) => (types.length && !types.includes(prev) ? types[0] : prev));
       }
     })();
   }, []);
 
   const fetchVehicles = async () => {
-    const { data } = await supabase.rpc('get_vehicles', { p_driver_id: userId });
-    const list = Array.isArray(data) ? (data as VehicleRow[]) : [];
+    const list = await loadVehicles();
     setVehicles(list);
     setLoading(false);
   };
@@ -93,7 +105,7 @@ function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; ho
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const { data } = await supabase.rpc('get_vehicles', { p_driver_id: userId });
+      const data = await loadVehicles();
       if (!mounted) return;
       const list = Array.isArray(data) ? (data as VehicleRow[]) : [];
 
@@ -168,6 +180,10 @@ function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; ho
       Alert.alert('No vehicle types', 'No vehicle types are configured in PRICING_CONFIG yet.');
       return;
     }
+    if (!registrationDoc) {
+      Alert.alert('Required document', 'Please upload the registration document for this vehicle.');
+      return;
+    }
     setSaving(true);
     const { data, error } = await supabase.rpc('upsert_vehicle', {
       p_driver_id: userId,
@@ -176,8 +192,42 @@ function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; ho
       p_type: type,
       p_vehicle_id: null,
     });
+    if (error) {
+      setSaving(false);
+      Alert.alert('Error', error.message);
+      return;
+    }
+
+    try {
+      const ext = registrationDoc.name.includes('.') ? registrationDoc.name.split('.').pop() : 'bin';
+      const objectPath = `${userId}/vehicle-${Date.now()}.${ext}`;
+      const response = await fetch(registrationDoc.uri);
+      const arrayBuffer = await response.arrayBuffer();
+      const { error: uploadErr } = await supabase.storage
+        .from('vehicle-documents')
+        .upload(objectPath, arrayBuffer, {
+          contentType: registrationDoc.mimeType,
+          upsert: true,
+        });
+      if (uploadErr) throw uploadErr;
+
+      const docUrl = supabase.storage.from('vehicle-documents').getPublicUrl(objectPath).data.publicUrl;
+      if (data?.ID) {
+        const { error: updateErr } = await supabase
+          .from('VEHICLE')
+          .update({
+            REGISTRATION_DOC_URL: docUrl,
+            IS_APPROVED: false,
+          })
+          .eq('ID', data.ID);
+        if (updateErr) throw updateErr;
+      }
+    } catch (err: any) {
+      setSaving(false);
+      Alert.alert('Upload error', err?.message ?? 'Could not upload vehicle registration document.');
+      return;
+    }
     setSaving(false);
-    if (error) { Alert.alert('Error', error.message); return; }
 
     // If this is the first vehicle, auto-set it as active
     if (vehicles.length === 0 && data?.ID) {
@@ -186,6 +236,7 @@ function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; ho
 
     setAddingNew(false);
     setPlate(''); setModel(''); setType(vehicleTypes[0] ?? '');
+    setRegistrationDoc(null);
     fetchVehicles();
   };
 
@@ -246,6 +297,9 @@ function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; ho
               </Text>
               <Text style={styles.vehiclePlate} numberOfLines={1}>{v.PLATE ?? '—'}</Text>
               {v.MODEL ? <Text style={styles.vehicleModel} numberOfLines={1}>{v.MODEL}</Text> : null}
+              <Text style={styles.vehicleStatus}>
+                {v.IS_APPROVED === true ? 'Approval: Approved' : 'Approval: Pending'}
+              </Text>
             </View>
 
             {/* Delete */}
@@ -306,10 +360,36 @@ function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; ho
             placeholderTextColor="#AAA"
           />
 
+          <Text style={styles.fieldLabel}>Registration Document</Text>
+          <TouchableOpacity
+            style={styles.docUploadBtn}
+            onPress={async () => {
+              const result = await DocumentPicker.getDocumentAsync({
+                type: ['application/pdf', 'image/jpeg', 'image/png'],
+                copyToCacheDirectory: true,
+                multiple: false,
+              });
+              if (result.canceled || !result.assets[0]) return;
+              const asset = result.assets[0];
+              setRegistrationDoc({
+                uri: asset.uri,
+                name: asset.name ?? 'registration-document.pdf',
+                mimeType: asset.mimeType ?? 'application/octet-stream',
+              });
+            }}
+            activeOpacity={0.8}
+          >
+            <MaterialIcons name="upload-file" size={18} color={PRIMARY} />
+            <Text style={styles.docUploadBtnText}>
+              {registrationDoc ? registrationDoc.name : 'Upload registration document'}
+            </Text>
+          </TouchableOpacity>
+          <Text style={styles.docUploadHint}>Accepted: PDF, JPG, PNG</Text>
+
           <View style={styles.editActions}>
             <TouchableOpacity
               style={styles.cancelBtn}
-              onPress={() => { setAddingNew(false); setPlate(''); setModel(''); setType(vehicleTypes[0] ?? 'motorcycle'); }}
+              onPress={() => { setAddingNew(false); setPlate(''); setModel(''); setType(vehicleTypes[0] ?? 'motorcycle'); setRegistrationDoc(null); }}
               activeOpacity={0.7}
             >
               <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -543,6 +623,7 @@ const styles = StyleSheet.create({
   vehicleType:   { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
   vehiclePlate:  { fontSize: 13, color: PRIMARY, fontWeight: '600', marginTop: 2 },
   vehicleModel:  { fontSize: 12, color: '#888', marginTop: 2 },
+  vehicleStatus: { fontSize: 11, color: '#888', marginTop: 4, fontWeight: '600' },
 
   addVehicleBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'center', paddingVertical: 12, marginTop: 4, borderRadius: 10, borderWidth: 1, borderColor: PRIMARY, borderStyle: 'dashed' },
   addVehicleBtnText: { fontSize: 14, color: PRIMARY, fontWeight: '600' },
@@ -552,6 +633,9 @@ const styles = StyleSheet.create({
 
   fieldLabel: { fontSize: 12, fontWeight: '600', color: '#888', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   input:      { backgroundColor: '#F7F7F7', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#1A1A1A', borderWidth: 1, borderColor: '#E8E8E8', marginBottom: 14 },
+  docUploadBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: '#E8DCC8', borderRadius: 10, backgroundColor: '#FFFAF2', paddingHorizontal: 12, paddingVertical: 11, marginBottom: 6 },
+  docUploadBtnText: { flex: 1, fontSize: 13, color: '#5F4A2A', fontWeight: '600' },
+  docUploadHint: { fontSize: 11, color: '#AAA', marginBottom: 14 },
 
   typeRow:            { flexDirection: 'row', gap: 8, marginBottom: 16 },
   typeRowWrap:        { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },

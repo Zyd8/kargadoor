@@ -153,6 +153,25 @@ CREATE POLICY "app_config_read" ON "APP_CONFIG"
   FOR SELECT USING (true);
 
 -- ─────────────────────────────────────────────────────────────
+-- 7. DRIVER + VEHICLE DOCUMENTS
+--    Required documents for approvals.
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE "PROFILE"
+  ADD COLUMN IF NOT EXISTS "DRIVER_LICENSE_URL" text,
+  ADD COLUMN IF NOT EXISTS "DRIVER_OR_CR_URL" text;
+
+ALTER TABLE "VEHICLE"
+  ADD COLUMN IF NOT EXISTS "REGISTRATION_DOC_URL" text;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('driver-documents', 'driver-documents', true)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('vehicle-documents', 'vehicle-documents', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- ─────────────────────────────────────────────────────────────
 -- DONE. Verify by running:
 --   SELECT * FROM "PRICING_CONFIG";
 --   SELECT * FROM "APP_CONFIG";
