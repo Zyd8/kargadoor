@@ -139,7 +139,11 @@ export default function OrderChatModal({ visible, orderId, myUserId, onClose }: 
   const canSend = useMemo(() => text.trim().length > 0 && !sending, [text, sending]);
   const senderId = orderMeta?.SENDER_ID ?? null;
   const driverId = orderMeta?.DRIVER_ID ?? null;
-  const senderName = senderProfile?.FULL_NAME ?? 'Sender';
+  const isSender = myUserId === senderId;
+  const counterpartProfile = isSender ? driverProfile : senderProfile;
+  const counterpartRole = isSender ? 'Rider' : 'Customer';
+  const counterpartName = counterpartProfile?.FULL_NAME ?? counterpartRole;
+  const counterpartPhone = counterpartProfile?.PHONE_NUMBER ?? null;
   const recipientName = orderMeta?.RECIPIENT_NAME ?? null;
   const recipientNumber = orderMeta?.RECIPIENT_NUMBER ?? senderProfile?.PHONE_NUMBER ?? null;
 
@@ -182,19 +186,22 @@ export default function OrderChatModal({ visible, orderId, myUserId, onClose }: 
           <View style={styles.sheet}>
             <View style={styles.header}>
               <View style={styles.headerLeft}>
-                {senderProfile?.AVATAR_URL ? (
-                  <Image source={{ uri: senderProfile.AVATAR_URL }} style={styles.headerAvatar} />
+                {counterpartProfile?.AVATAR_URL ? (
+                  <Image source={{ uri: counterpartProfile.AVATAR_URL }} style={styles.headerAvatar} />
                 ) : (
                   <View style={styles.headerAvatarFallback}>
                     <MaterialIcons name="person" size={16} color="#fff" />
                   </View>
                 )}
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.title}>Order Chat</Text>
+                  <Text style={styles.title}>Delivery Chat</Text>
                   <Text style={styles.headerSub} numberOfLines={1}>
-                    {senderName}
-                    {recipientName ? ` · Recipient: ${recipientName}` : ''}
-                    {recipientNumber ? ` · ${recipientNumber}` : ''}
+                    {driverId || !isSender
+                      ? `${counterpartRole}: ${counterpartName}`
+                      : 'Waiting for rider assignment'}
+                    {counterpartPhone ? ` · ${counterpartPhone}` : ''}
+                    {!isSender && recipientName ? ` · Recipient: ${recipientName}` : ''}
+                    {!isSender && recipientNumber ? ` · ${recipientNumber}` : ''}
                   </Text>
                 </View>
               </View>

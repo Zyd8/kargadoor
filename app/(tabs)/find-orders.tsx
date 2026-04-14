@@ -263,6 +263,17 @@ function buildMapHTML(
     selectedRouteIdx[orderId] = null;
   }
 
+  window.clearAllRoutes = function() {
+    Object.keys(routeLayers).forEach(function(orderId) {
+      var layers = routeLayers[orderId] || [];
+      layers.forEach(function(l) { try { map.removeLayer(l); } catch(e){} });
+      routeLayers[orderId] = [];
+      selectedRouteIdx[orderId] = null;
+      var acceptBtn = document.getElementById('accept-' + orderId);
+      if (acceptBtn) acceptBtn.disabled = true;
+    });
+  };
+
   function setRouteSelection(orderId, idx) {
     selectedRouteIdx[orderId] = idx;
     var layers = routeLayers[orderId] || [];
@@ -676,6 +687,9 @@ export default function FindOrdersScreen() {
               if (autoFindEnabled) {
                 setAutoFindEnabled(false);
                 setQueueStartedAt(null);
+                webRef.current?.injectJavaScript(
+                  `typeof clearAllRoutes!=='undefined'&&clearAllRoutes();true`
+                );
               } else {
                 setAutoFindEnabled(true);
                 setQueueStartedAt(Date.now());
@@ -725,6 +739,9 @@ export default function FindOrdersScreen() {
             onPress={() => {
               setAutoFindEnabled(false);
               setQueueStartedAt(null);
+              webRef.current?.injectJavaScript(
+                `typeof clearAllRoutes!=='undefined'&&clearAllRoutes();true`
+              );
             }}
             style={styles.waitingActionBtn}
             activeOpacity={0.8}

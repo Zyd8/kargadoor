@@ -1,5 +1,6 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import Constants from 'expo-constants';
+import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -353,6 +354,7 @@ export default function AddScreen() {
   const [routeMeta, setRouteMeta] = useState<{ distanceKm: number; durationMin: number } | null>(null);
   const [pricingLoaded, setPricingLoaded] = useState(false);
   const addOnAnim = useRef(new Animated.Value(0)).current;
+  const pickupAutofillAttemptedRef = useRef(false);
 
   const blankForm = (): OrderForm => ({
     pickup:        EMPTY_LOC,
@@ -369,6 +371,37 @@ export default function AddScreen() {
   const [form, setForm] = useState<OrderForm>(blankForm);
   const set = <K extends keyof OrderForm>(key: K, val: OrderForm[K]) =>
     setForm(prev => ({ ...prev, [key]: val }));
+
+  // Default pickup pin to the user's current location on first load.
+  useEffect(() => {
+    if (pickupAutofillAttemptedRef.current) return;
+    if (form.pickup.lat != null || form.pickup.lng != null || form.pickup.address.trim().length > 0) return;
+    pickupAutofillAttemptedRef.current = true;
+
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const { latitude: lat, longitude: lng } = pos.coords;
+
+        let address = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        try {
+          const url = `https://api.tomtom.com/search/2/reverseGeocode/${lat},${lng}.json?key=${TOMTOM_KEY}`;
+          const res = await fetch(url);
+          const json = await res.json();
+          address = json?.addresses?.[0]?.address?.freeformAddress ?? address;
+        } catch {
+          // Keep coordinate fallback address if reverse geocode fails.
+        }
+
+        set('pickup', { address, lat, lng });
+      } catch {
+        // Silent fail; user can still choose manually.
+      }
+    })();
+  }, [form.pickup.address, form.pickup.lat, form.pickup.lng]);
 
   // Fetch pricing config from Supabase (base_fare + per_km_rate per vehicle_type)
   useEffect(() => {
