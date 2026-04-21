@@ -1,10 +1,11 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Tabs, router } from 'expo-router';
 import { useEffect } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/contexts/auth-context';
+import { supabase } from '@/lib/supabase';
 
 const PRIMARY  = '#f0a92d';
 const INACTIVE = '#9E9E9E';
@@ -39,6 +40,34 @@ export default function TabLayout() {
   }, [user, loading, debugBypass, isAuthenticated]);
 
   if (loading || !isAuthenticated) return null;
+
+  const handleFindOrdersPress = async () => {
+    if (!isDriver || !user?.id) {
+      router.navigate('/(tabs)/find-orders');
+      return;
+    }
+
+    const { data: vehicleData } = await supabase
+      .from('VEHICLE')
+      .select('ID, IS_ACTIVE, IS_APPROVED')
+      .eq('DRIVER_ID', user.id);
+    const vehicleList = (Array.isArray(vehicleData) ? vehicleData : []) as Array<{
+      ID: string;
+      IS_ACTIVE: boolean;
+      IS_APPROVED?: boolean | null;
+    }>;
+
+    const activeVehicle = vehicleList.find((vehicle) => vehicle.IS_ACTIVE) ?? vehicleList[0] ?? null;
+    if (!activeVehicle || activeVehicle.IS_APPROVED === true) {
+      router.navigate('/(tabs)/find-orders');
+      return;
+    }
+
+    Alert.alert(
+      'Approval pending',
+      'Your active vehicle is still pending approval, so Find Orders is unavailable right now.'
+    );
+  };
 
   const tabBarStyle = [
     styles.tabBar,
@@ -98,7 +127,9 @@ export default function TabLayout() {
                 tabBarIcon: () => null,
                 tabBarButton: (props) => (
                   <CenterButton
-                    onPress={props.onPress ?? undefined}
+                    onPress={() => {
+                      void handleFindOrdersPress();
+                    }}
                     style={props.style}
                     isDriver
                   />

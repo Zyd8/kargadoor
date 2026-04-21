@@ -126,6 +126,23 @@ function VehicleSection({ userId, horizontalPadding = 20 }: { userId: string; ho
     return () => { mounted = false; };
   }, [userId]);
 
+  useEffect(() => {
+    const channel = supabase
+      .channel(`vehicles-driver-${userId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'VEHICLE', filter: `DRIVER_ID=eq.${userId}` },
+        () => {
+          fetchVehicles();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
   const handleSetActive = async (v: VehicleRow) => {
     if (v.IS_ACTIVE) return;
     setSettingId(v.ID);

@@ -51,7 +51,16 @@ type VehicleRow = {
   MODEL: string | null;
   TYPE: string | null;
   IS_ACTIVE: boolean;
+  IS_APPROVED?: boolean | null;
 };
+
+async function fetchDriverVehicles(driverId: string): Promise<VehicleRow[]> {
+  const { data } = await supabase
+    .from('VEHICLE')
+    .select('ID, DRIVER_ID, PLATE, MODEL, TYPE, IS_ACTIVE, IS_APPROVED')
+    .eq('DRIVER_ID', driverId);
+  return (Array.isArray(data) ? data : []) as VehicleRow[];
+}
 
 type PendingOrder = {
   ID: string;
@@ -421,6 +430,7 @@ export default function FindOrdersScreen() {
   const [radiusKm, setRadiusKm]             = useState<number>(10);
   const [locationDenied, setLocationDenied] = useState(false);
   const [vehicleGate, setVehicleGate]       = useState(false);
+  const [approvalGate, setApprovalGate]     = useState(false);
   const [activeVehicle, setActiveVehicle]   = useState<VehicleRow | null>(null);
   const [autoFindEnabled, setAutoFindEnabled] = useState(false);
   const [queueStartedAt, setQueueStartedAt] = useState<number | null>(null);
@@ -469,10 +479,53 @@ export default function FindOrdersScreen() {
     setAllOrders(list);
   }, [user?.id]);
 
+  useEffect(() => {
+    if (!user?.id) return;
+    const driverId = user.id;
+    const channel = supabase
+      .channel(`find-orders-vehicle-${driverId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'VEHICLE', filter: `DRIVER_ID=eq.${driverId}` },
+        async () => {
+          const vehicleList = await fetchDriverVehicles(driverId);
+          const active = vehicleList.find((v) => v.IS_ACTIVE) ?? null;
+
+          if (!active) {
+            setVehicleGate(true);
+            setApprovalGate(false);
+            setActiveVehicle(null);
+            activeVehicleRef.current = null;
+            return;
+          }
+
+          if (active.IS_APPROVED !== true) {
+            setApprovalGate(true);
+            setVehicleGate(false);
+            setActiveVehicle(null);
+            activeVehicleRef.current = null;
+            return;
+          }
+
+          setVehicleGate(false);
+          setApprovalGate(false);
+          setActiveVehicle(active);
+          activeVehicleRef.current = active;
+          fetchOrders(active.TYPE ?? null);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchOrders, user?.id]);
+
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
       setVehicleGate(false);
+      setApprovalGate(false);
       setActiveVehicle(null);
       activeVehicleRef.current = null;
 
@@ -484,8 +537,7 @@ export default function FindOrdersScreen() {
         if (!driverId) { setLoading(false); return; }
 
         // ── 1. Check for active vehicle ────────────────────────────────────
-        const { data: vehicleData } = await supabase.rpc('get_vehicles', { p_driver_id: driverId });
-        const vehicleList = (Array.isArray(vehicleData) ? vehicleData : []) as VehicleRow[];
+        const vehicleList = await fetchDriverVehicles(driverId);
         let active = vehicleList.find((v) => v.IS_ACTIVE) ?? null;
 
         if (!active && vehicleList.length > 0) {
@@ -498,6 +550,11 @@ export default function FindOrdersScreen() {
 
         if (!active) {
           setVehicleGate(true);
+          setLoading(false);
+          return;
+        }
+        if (active.IS_APPROVED !== true) {
+          setApprovalGate(true);
           setLoading(false);
           return;
         }
@@ -646,6 +703,30 @@ export default function FindOrdersScreen() {
           <Text style={styles.gateTitle}>No active vehicle</Text>
           <Text style={styles.gateSub}>
             Add and select a vehicle in your profile before finding orders.
+          </Text>
+          <TouchableOpacity
+            style={styles.gateBtn}
+            onPress={() => router.navigate('/(tabs)/profile')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.gateBtnText}>Go to Profile</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (approvalGate) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Find Orders</Text>
+        </View>
+        <View style={styles.gateContainer}>
+          <MaterialIcons name="pending-actions" size={64} color="#E8DCC8" />
+          <Text style={styles.gateTitle}>Vehicle approval pending</Text>
+          <Text style={styles.gateSub}>
+            Your active vehicle is still pending approval. You can access Find Orders once it is approved.
           </Text>
           <TouchableOpacity
             style={styles.gateBtn}
