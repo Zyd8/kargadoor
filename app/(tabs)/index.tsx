@@ -1,0 +1,1458 @@
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Constants from 'expo-constants';
+import { Image } from 'expo-image';
+import { useFocusEffect, router } from 'expo-router';
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  KeyboardAvoidingView,
+  LayoutAnimation,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  UIManager,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import LocationPicker, { LocationValue } from '@/components/location-picker';
+import { useAuth } from '@/contexts/auth-context';
+import { buildVehicleOptionsFromPricing, type PricingRow, type VehicleOption } from '@/lib/pricing';
+import { supabase } from '@/lib/supabase';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+const TOMTOM_KEY = Constants.expoConfig?.extra?.tomtomApiKey ?? '';
+
+type TomTomTravelMode =
+  | 'car'
+  | 'truck'
+  | 'taxi'
+  | 'bus'
+  | 'van'
+  | 'motorcycle'
+  | 'bicycle'
+  | 'pedestrian';
+
+function tomtomTravelModeForBackendVehicleType(vehicleType: string | null): TomTomTravelMode | null {
+  const t = (vehicleType ?? '').toLowerCase();
+  if (!t) return null;
+  if (t.includes('truck')) return 'truck';
+  if (t.includes('van') || t.includes('mpv') || t.includes('car')) return 'car';
+  if (t.includes('motorcycle') || t.includes('moto')) return 'motorcycle';
+  if (t.includes('bike')) return 'bicycle';
+  return 'car';
+}
+
+async function fetchTomTomRouteSummary(args: {
+  pickupLat: number;
+  pickupLng: number;
+  dropoffLat: number;
+  dropoffLng: number;
+  travelMode?: TomTomTravelMode | null;
+}): Promise<{ lengthInMeters: number; travelTimeInSeconds: number } | null> {
+  if (!TOMTOM_KEY) return null;
+  const { pickupLat, pickupLng, dropoffLat, dropoffLng, travelMode } = args;
+  const baseUrl =
+    `https://api.tomtom.com/routing/1/calculateRoute/` +
+    `${pickupLat},${pickupLng}:${dropoffLat},${dropoffLng}/json` +
+    `?key=${encodeURIComponent(String(TOMTOM_KEY))}&traffic=true`;
+
+  const url = travelMode ? `${baseUrl}&travelMode=${encodeURIComponent(travelMode)}` : baseUrl;
+  let resp = await fetch(url);
+  if (!resp.ok && travelMode) resp = await fetch(baseUrl);
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  const summary = data?.routes?.[0]?.summary;
+  const lengthInMeters = Number(summary?.lengthInMeters);
+  const travelTimeInSeconds = Number(summary?.travelTimeInSeconds);
+  if (!Number.isFinite(lengthInMeters) || !Number.isFinite(travelTimeInSeconds)) return null;
+  return { lengthInMeters, travelTimeInSeconds };
+}
+
+function roundMoney(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+// ── Palette ──────────────────────────────────────────────────────────────────
+const C = {
+  primary:    '#c7881a',
+  primaryMid: '#f0a92d',
+  primaryLt:  '#f5bc4a',
+  accent:     '#f0a92d',
+  accentDim:  '#FEF5E6',
+  surface:    '#FFFFFF',
+  surfaceAlt: '#FBF8F4',
+  cardDark:   '#f0a92d',
+  ink:        '#1C1410',
+  inkMid:     '#5E544A',
+  inkSoft:    '#9C938A',
+  border:     '#EDE6DC',
+  danger:     '#F03E3E',
+  warning:    '#F59E0B',
+  bg:         '#F8F6F2',
+  gold:       '#f0a92d',
+};
+
+const STATUS_COLOR: Record<string, string> = {
+  PENDING:     C.warning,
+  IN_PROGRESS: C.primaryLt,
+  COMPLETE:    C.inkSoft,
+  CANCELLED:   C.danger,
+};
+
+// ── Types ────────────────────────────────────────────────────────────────────
+type ActiveOrder = {
+  ID: string; STATUS: string | null;
+  PICKUP_ADDRESS: string | null; RECIPIENT_ADDRESS: string | null;
+  PICKUP_LAT: number | null; PICKUP_LNG: number | null; PRICE: number | null;
+};
+type RecentOrder    = { ID: string; STATUS: string | null };
+type DriverStats    = { totalDeliveries: number; totalEarnings: number; inProgressCount: number; cancelledCount: number };
+type ActiveDelivery = { ID: string; PICKUP_ADDRESS: string | null; RECIPIENT_ADDRESS: string | null; RECIPIENT_NAME: string | null; RECIPIENT_NUMBER: string | null; PRICE: number | null };
+
+type AddOn = {
+  id: string;
+  icon: keyof typeof MaterialIcons.glyphMap;
+  label: string; desc: string; price: number;
+  color: string; bgColor: string;
+};
+
+const EMPTY_LOC: LocationValue = { address: '', lat: null, lng: null };
+
+const ITEM_TYPES = [
+  'Food and Beverages',
+  'Appliances / Furniture',
+  'Office Items / Documents',
+  'Construction Materials',
+  'Clothing and Accessories',
+  'Electronics and Gadgets',
+  'Others',
+];
+
+// ── Data ─────────────────────────────────────────────────────────────────────
+const ADD_ONS: AddOn[] = [
+  {
+    id: 'buyforme', icon: 'shopping-bag',
+    label: 'Buy For Me', desc: 'Rider purchases the item on your behalf before delivery',
+    price: 30, color: '#7C3AED', bgColor: '#EDE9FE',
+  },
+  {
+    id: 'waiting', icon: 'access-time',
+    label: 'Extra Waiting Time', desc: 'Add +15 min wait at pickup or drop-off location',
+    price: 25, color: '#D97706', bgColor: '#FEF3C7',
+  },
+  {
+    id: 'thermal', icon: 'kitchen',
+    label: 'Thermal Bag', desc: 'Insulated bag keeps food hot or cold during transit',
+    price: 20, color: '#EA580C', bgColor: '#FFEDD5',
+  },
+];
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function staticMapUrl(lat: number, lng: number) {
+  return (
+    `https://api.tomtom.com/map/1/staticimage` +
+    `?key=${TOMTOM_KEY}&zoom=13&center=${lng},${lat}&width=220&height=140&format=png&layer=basic&style=main`
+  );
+}
+
+function getGreeting(name?: string | null) {
+  const h = new Date().getHours();
+  const time = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  return { time, name: name?.split(' ')[0] ?? 'there' };
+}
+
+// ── StatusBadge ───────────────────────────────────────────────────────────────
+function StatusBadge({ status }: { status: string | null }) {
+  const label = status ?? 'PENDING';
+  const color = STATUS_COLOR[label] ?? '#888';
+  return (
+    <View style={[sx.badge, { backgroundColor: color + '1A', borderColor: color + '55' }]}>
+      <View style={[sx.badgeDot, { backgroundColor: color }]} />
+      <Text style={[sx.badgeText, { color }]}>{label.replace('_', ' ')}</Text>
+    </View>
+  );
+}
+
+// ── SectionLabel ──────────────────────────────────────────────────────────────
+function SectionLabel({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
+  return (
+    <View style={sx.sectionRow}>
+      <Text style={sx.sectionTitle}>{title}</Text>
+      {action && (
+        <TouchableOpacity onPress={onAction} activeOpacity={0.7}>
+          <Text style={sx.sectionAction}>{action}</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+// ── Add-On Services Panel ─────────────────────────────────────────────────────
+function AddOnPanel({
+  vehicleLabel, activeAddOns, onToggle,
+}: {
+  vehicleLabel: string; activeAddOns: Set<string>; onToggle: (id: string) => void;
+}) {
+  const addOnTotal = ADD_ONS.filter(a => activeAddOns.has(a.id)).reduce((s, a) => s + a.price, 0);
+
+  return (
+    <View style={sx.addOnPanel}>
+      {/* Dark header bar */}
+      <View style={sx.addOnHeader}>
+        <View>
+          <Text style={sx.addOnTitle}>Add-on Services</Text>
+          <Text style={sx.addOnHeaderSub}>Optional extras for your {vehicleLabel}</Text>
+        </View>
+        <View style={sx.addOnOptionalPill}>
+          <Text style={sx.addOnOptionalText}>OPTIONAL</Text>
+        </View>
+      </View>
+
+      {/* Cards */}
+      {ADD_ONS.map((addon, i) => {
+        const active = activeAddOns.has(addon.id);
+        return (
+          <TouchableOpacity
+            key={addon.id}
+            style={[sx.addOnCard, i > 0 && sx.addOnCardBorder, active && sx.addOnCardActive]}
+            onPress={() => onToggle(addon.id)}
+            activeOpacity={0.75}
+          >
+            {/* Left color strip */}
+            {active && <View style={[sx.addOnStrip, { backgroundColor: addon.color }]} />}
+
+            {/* Icon */}
+            <View style={[sx.addOnIconBlob, { backgroundColor: addon.bgColor }]}>
+              <MaterialIcons name={addon.icon} size={20} color={addon.color} />
+            </View>
+
+            {/* Text */}
+            <View style={sx.addOnBody}>
+              <Text style={[sx.addOnLabel, active && { color: addon.color }]}>{addon.label}</Text>
+              <Text style={sx.addOnDesc} numberOfLines={2}>{addon.desc}</Text>
+            </View>
+
+            {/* Price + checkbox */}
+            <View style={sx.addOnRight}>
+              <Text style={[sx.addOnPrice, active && { color: addon.color }]}>+₱{addon.price}</Text>
+              <View style={[sx.addOnCheck, active && { backgroundColor: addon.color, borderColor: addon.color }]}>
+                {active && <MaterialIcons name="check" size={11} color="#fff" />}
+              </View>
+            </View>
+          </TouchableOpacity>
+        );
+      })}
+
+      {/* Subtotal row */}
+      {addOnTotal > 0 && (
+        <View style={sx.addOnFooter}>
+          <View style={sx.addOnFooterLeft}>
+            <MaterialIcons name="receipt-long" size={14} color={C.inkMid} />
+            <Text style={sx.addOnFooterLabel}>{activeAddOns.size} add-on{activeAddOns.size > 1 ? 's' : ''} selected</Text>
+          </View>
+          <Text style={sx.addOnFooterTotal}>+₱{addOnTotal}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ── Booking Form ──────────────────────────────────────────────────────────────
+function BookingForm() {
+  const { user } = useAuth();
+
+  const [pickup,       setPickup]       = useState<LocationValue>(EMPTY_LOC);
+  const [dropoff,      setDropoff]      = useState<LocationValue>(EMPTY_LOC);
+  const [selected,     setSelected]     = useState<string | null>(null);
+  const [activeAddOns, setActiveAddOns] = useState<Set<string>>(new Set());
+  const [pricingData,  setPricingData]  = useState<Record<string, PricingRow>>({});
+  const [availableVehicles, setAvailableVehicles] = useState<VehicleOption[]>([]);
+  const [estimatedPrice, setEstimatedPrice] = useState<number | null>(null);
+  const [routeMeta, setRouteMeta] = useState<{ distanceKm: number; durationMin: number } | null>(null);
+  const [pricingLoaded, setPricingLoaded] = useState(false);
+
+  const [recipientName, setRecipientName] = useState('');
+  const [contactNumber, setContactNumber] = useState(
+    ((user as any)?.user_metadata?.phone_number as string) ?? ''
+  );
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'gcash'>('cash');
+  const [itemType,      setItemType]      = useState('');
+  const [notes,         setNotes]         = useState('');
+
+  const [detailsVisible, setDetailsVisible] = useState(false);
+  const [submitting,     setSubmitting]     = useState(false);
+
+  const addOnAnim = useRef(new Animated.Value(0)).current;
+
+  const selectedVehicle = availableVehicles.find(v => v.id === selected);
+  const canContinue =
+    pickup.address.trim().length > 0 &&
+    dropoff.address.trim().length > 0 &&
+    selected !== null;
+
+  const addOnTotal = ADD_ONS.filter(a => activeAddOns.has(a.id)).reduce((s, a) => s + a.price, 0);
+
+  const getBasePrice = useCallback((vehicleId: string | null) => {
+    if (!vehicleId) return 0;
+    return pricingData[vehicleId]?.baseFare ?? availableVehicles.find(v => v.id === vehicleId)?.basePrice ?? 0;
+  }, [pricingData, availableVehicles]);
+
+  const totalPrice = getBasePrice(selectedVehicle?.id ?? null) + addOnTotal;
+  const finalEstimated =
+    estimatedPrice != null
+      ? estimatedPrice + addOnTotal
+      : totalPrice;
+
+  const etaLabel = routeMeta?.durationMin != null ? `~${routeMeta.durationMin} min` : selectedVehicle?.eta;
+
+  function selectVehicle(id: string) {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const closing = selected === id;
+    setSelected(closing ? null : id);
+    if (closing) setActiveAddOns(new Set());
+    Animated.spring(addOnAnim, {
+      toValue: closing ? 0 : 1,
+      useNativeDriver: false,
+      friction: 8,
+      tension: 60,
+    }).start();
+  }
+
+  // fetch pricing configuration from Supabase (base_fare + per_km_rate per vehicle_type)
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from('PRICING_CONFIG')
+        .select('VEHICLE_TYPE, BASE_FARE, PER_KM_RATE');
+      if (!error && data) {
+        const byType: Record<string, PricingRow> = {};
+        const rows: PricingRow[] = [];
+        data.forEach((row: { VEHICLE_TYPE: string; BASE_FARE: number; PER_KM_RATE: number }) => {
+          const backendType = row.VEHICLE_TYPE?.trim() ?? '';
+          if (!backendType) return;
+          const baseFare = Number(row.BASE_FARE) || 0;
+          const perKmRate = Number(row.PER_KM_RATE) || 0;
+          byType[backendType] = { vehicleType: backendType, baseFare, perKmRate };
+          rows.push({ vehicleType: backendType, baseFare, perKmRate });
+        });
+        setPricingData(byType);
+        setAvailableVehicles(buildVehicleOptionsFromPricing(rows));
+      }
+      setPricingLoaded(true);
+    })();
+  }, []);
+
+  function toggleAddOn(id: string) {
+    const next = new Set(activeAddOns);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setActiveAddOns(next);
+  }
+
+  const detailsValid =
+    recipientName.trim().length > 0 &&
+    contactNumber.trim().length > 6;
+
+  // fetch delivery quote (TomTom edge function with RPC fallback)
+  useEffect(() => {
+    const valid =
+      pickup.lat != null &&
+      pickup.lng != null &&
+      dropoff.lat != null &&
+      dropoff.lng != null &&
+      selected !== null;
+
+    if (!valid) {
+      setEstimatedPrice(null);
+      setRouteMeta(null);
+      return;
+    }
+
+    let mounted = true;
+    (async () => {
+      try {
+        const backendVehicleType = selected;
+        const travelMode = tomtomTravelModeForBackendVehicleType(backendVehicleType);
+        const summary = await fetchTomTomRouteSummary({
+          pickupLat: pickup.lat!,
+          pickupLng: pickup.lng!,
+          dropoffLat: dropoff.lat!,
+          dropoffLng: dropoff.lng!,
+          travelMode,
+        });
+
+        if (!mounted) return;
+
+        if (summary) {
+          const distanceKm = summary.lengthInMeters / 1000;
+          const durationMin = Math.max(1, Math.round(summary.travelTimeInSeconds / 60));
+          setRouteMeta({ distanceKm, durationMin });
+
+          const baseFare = getBasePrice(selected);
+          const perKmRate = pricingData[selected]?.perKmRate ?? 0;
+          if (perKmRate > 0) {
+            setEstimatedPrice(roundMoney(baseFare + perKmRate * distanceKm));
+            return;
+          }
+        }
+
+        const { data } = await supabase.rpc('get_delivery_quote', {
+          p_vehicle_type: backendVehicleType,
+          p_pickup_lat:   pickup.lat,
+          p_pickup_lng:   pickup.lng,
+          p_dropoff_lat:  dropoff.lat,
+          p_dropoff_lng:  dropoff.lng,
+        });
+        setEstimatedPrice(data != null ? Number(data) : null);
+      } catch (error) {
+        console.error('Error fetching delivery quote:', error);
+        const backendVehicleType = selected;
+        const { data } = await supabase.rpc('get_delivery_quote', {
+          p_vehicle_type: backendVehicleType,
+          p_pickup_lat:   pickup.lat,
+          p_pickup_lng:   pickup.lng,
+          p_dropoff_lat:  dropoff.lat,
+          p_dropoff_lng:  dropoff.lng,
+        });
+        if (mounted) setEstimatedPrice(data != null ? Number(data) : null);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, selected, pricingData, getBasePrice]);
+
+  const handleSubmit = async () => {
+    if (!user) {
+      Alert.alert('Not logged in', 'Please sign in to place an order.');
+      return;
+    }
+
+    if (!selected || !pickup.lat || !pickup.lng || !dropoff.lat || !dropoff.lng) {
+      Alert.alert('Missing details', 'Please complete pickup, drop-off, and vehicle selection.');
+      return;
+    }
+
+    if (!detailsValid) {
+      Alert.alert('Missing details', 'Please provide recipient name and a valid contact number.');
+      return;
+    }
+
+    setSubmitting(true);
+    const backendVehicleType = selected;
+    const { error } = await supabase.rpc('insert_package', {
+      p_sender_id:        user.id,
+      p_pickup_address:   pickup.address.trim(),
+      p_pickup_lat:       pickup.lat,
+      p_pickup_lng:       pickup.lng,
+      p_recipient_address: dropoff.address.trim(),
+      p_dropoff_lat:      dropoff.lat,
+      p_dropoff_lng:      dropoff.lng,
+      p_recipient_name:   recipientName.trim(),
+      p_recipient_number: contactNumber.trim(),
+      p_order_contact:    contactNumber.trim(),
+      p_vehicle_type:     backendVehicleType,
+      p_payment_method:   paymentMethod,
+      p_item_types:       itemType || 'Others',
+      p_notes:            notes.trim() || null,
+      p_status:           'PENDING',
+    });
+    setSubmitting(false);
+
+    if (error) {
+      Alert.alert('Failed to place order', error.message);
+      return;
+    }
+
+    Alert.alert('Order placed!', 'Your delivery request is now pending.', [
+      {
+        text: 'View Orders',
+        onPress: () => {
+          setPickup(EMPTY_LOC);
+          setDropoff(EMPTY_LOC);
+          setSelected(null);
+          setActiveAddOns(new Set());
+          setRecipientName('');
+          setContactNumber(
+            ((user as any)?.user_metadata?.phone_number as string) ?? ''
+          );
+          setPaymentMethod('cash');
+          setItemType('');
+          setNotes('');
+          setEstimatedPrice(null);
+          setDetailsVisible(false);
+          router.replace('/(tabs)/orders');
+        },
+      },
+    ]);
+  };
+
+  return (
+    <View style={sx.bookingCard}>
+
+      {/* Route */}
+      <View style={sx.routeWrap}>
+        <View style={sx.inputRow}>
+          <View style={[sx.routeDot, { backgroundColor: C.accent }]} />
+          <View style={{ flex: 1 }}>
+            <LocationPicker
+              placeholder="Pickup location"
+              value={pickup}
+              onChange={setPickup}
+              showCurrentLocation
+            />
+          </View>
+        </View>
+        <View style={sx.routeSep}>
+          <View style={sx.routeSepLine} />
+          <TouchableOpacity
+            style={sx.swapBtn}
+            onPress={() => {
+              const t = pickup;
+              setPickup(dropoff);
+              setDropoff(t);
+            }}
+            activeOpacity={0.8}
+          >
+            <MaterialIcons name="swap-vert" size={15} color={C.primaryMid} />
+          </TouchableOpacity>
+          <View style={sx.routeSepLine} />
+        </View>
+        <View style={sx.inputRow}>
+          <View style={[sx.routeDot, { backgroundColor: C.danger }]} />
+          <View style={{ flex: 1 }}>
+            <LocationPicker
+              placeholder="Drop-off destination"
+              value={dropoff}
+              onChange={setDropoff}
+            />
+          </View>
+        </View>
+      </View>
+
+      {/* Vehicle heading */}
+      <View style={sx.vHeadRow}>
+        <Text style={sx.vHeadTitle}>Select Vehicle</Text>
+        <Text style={sx.vHeadCount}>{pricingLoaded ? `${availableVehicles.length} types` : 'Loading…'}</Text>
+      </View>
+
+      {/* Horizontal vehicle cards */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={sx.vScroll}
+        style={sx.vScrollOuter}
+      >
+        {availableVehicles.map(v => {
+          const active = selected === v.id;
+          return (
+            <TouchableOpacity
+              key={v.id}
+              style={[sx.vCard, active && sx.vCardActive]}
+              onPress={() => selectVehicle(v.id)}
+              activeOpacity={0.82}
+            >
+              {/* Tag pill */}
+              {v.tag && (
+                <View style={[sx.vTag, { backgroundColor: (v.tagColor ?? C.primary) + '20' }]}>
+                  <Text style={[sx.vTagText, { color: v.tagColor ?? C.primary }]}>{v.tag}</Text>
+                </View>
+              )}
+
+              {/* Emoji circle */}
+              <View style={[sx.vEmojiWrap, active && sx.vEmojiWrapActive]}>
+                <Text style={sx.vEmoji}>{v.emoji}</Text>
+              </View>
+
+              <Text style={[sx.vName, active && sx.vNameActive]} numberOfLines={2}>{v.label}</Text>
+              <Text style={sx.vCap}>{v.capacity}</Text>
+
+              <View style={sx.vMeta}>
+                <Text style={[sx.vEta, active && { color: C.primaryLt }]}>{v.eta}</Text>
+                <Text style={[sx.vPrice, active && { color: C.primary }]}>₱{pricingData[v.id]?.baseFare ?? '—'}</Text>
+              </View>
+
+              {/* Active bottom bar */}
+              {active && <View style={sx.vActiveBar} />}
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      {/* Add-on panel — animated */}
+      {selected && (
+        <Animated.View
+          style={[
+            sx.addOnWrapper,
+            {
+              opacity: addOnAnim,
+              transform: [{
+                translateY: addOnAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }),
+              }],
+            },
+          ]}
+        >
+          <AddOnPanel
+            vehicleLabel={selectedVehicle?.label ?? ''}
+            activeAddOns={activeAddOns}
+            onToggle={toggleAddOn}
+          />
+        </Animated.View>
+      )}
+
+      {/* Fare summary */}
+      {selected && (
+        <View style={sx.fareRow}>
+          <View>
+            <Text style={sx.fareLabel}>Estimated Fare</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+              <Text style={sx.fareValue}>
+                ₱{finalEstimated.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+              </Text>
+              {addOnTotal > 0 && (
+                <Text style={sx.fareBreakdown}>base ₱{getBasePrice(selectedVehicle?.id ?? null)} + ₱{addOnTotal}</Text>
+              )}
+            </View>
+          </View>
+          <View style={sx.fareEtaChip}>
+            <MaterialIcons name="schedule" size={12} color={C.primaryMid} />
+            <Text style={sx.fareEtaText}>{etaLabel}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Book button */}
+      <TouchableOpacity
+        style={[sx.bookBtn, !canContinue && sx.bookBtnOff]}
+        activeOpacity={canContinue ? 0.85 : 1}
+        onPress={() => canContinue && setDetailsVisible(true)}
+      >
+        <Text style={sx.bookBtnText}>
+          {canContinue
+            ? `Book ${selectedVehicle?.label}`
+            : !pickup.address || !dropoff.address ? 'Enter pickup & drop-off' : 'Select a vehicle'}
+        </Text>
+        {canContinue && (
+          <View style={sx.bookBtnArrow}>
+            <MaterialIcons name="arrow-forward" size={15} color={C.primary} />
+          </View>
+        )}
+      </TouchableOpacity>
+
+      {/* Details modal for recipient, payment, item type, notes, and final confirmation */}
+      <Modal
+        visible={detailsVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => !submitting && setDetailsVisible(false)}
+      >
+        <View style={sx.modalBackdrop}>
+          <KeyboardAvoidingView
+            style={sx.modalSheet}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <View style={sx.modalCard}>
+              <View style={sx.modalHeaderRow}>
+                <Text style={sx.modalTitle}>Trip Details</Text>
+                <TouchableOpacity
+                  onPress={() => !submitting && setDetailsVisible(false)}
+                  hitSlop={12}
+                >
+                  <MaterialIcons name="close" size={22} color={C.inkSoft} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                style={sx.modalScroll}
+                contentContainerStyle={sx.modalScrollContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                {selectedVehicle && (
+                  <View style={sx.modalVehicleRow}>
+                    <Text style={sx.modalVehicleEmoji}>{selectedVehicle.emoji}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={sx.modalVehicleLabel}>{selectedVehicle.label}</Text>
+                      <Text style={sx.modalVehicleSub}>
+                        {selectedVehicle.capacity} · {etaLabel}
+                      </Text>
+                    </View>
+                    <View style={sx.modalFarePill}>
+                      <Text style={sx.modalFarePillText}>
+                        ₱{finalEstimated.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                <View style={sx.modalSection}>
+                  <Text style={sx.modalSectionLabel}>Recipient</Text>
+                  <View style={sx.modalInputRow}>
+                    <MaterialIcons name="person" size={18} color={C.inkSoft} style={{ marginRight: 8 }} />
+                    <TextInput
+                      style={sx.modalTextInput}
+                      placeholder="Recipient name"
+                      placeholderTextColor={C.inkSoft}
+                      value={recipientName}
+                      onChangeText={setRecipientName}
+                    />
+                  </View>
+
+                  <View style={sx.modalInputRow}>
+                    <MaterialIcons name="phone" size={18} color={C.inkSoft} style={{ marginRight: 8 }} />
+                    <Text style={{ marginRight: 6, fontSize: 14, fontWeight: '600', color: C.ink }}>
+                                +63
+                              </Text>
+                    <TextInput
+                      style={sx.modalTextInput}
+                      placeholder="9XXXXXXXXX"
+                      placeholderTextColor={C.inkSoft}
+                      keyboardType="phone-pad"
+                      maxLength={10}
+                      value={contactNumber.replace('+63', '')}
+                      onChangeText={(text) => {
+                        const digits = text.replace(/\D/g, '').slice(0, 10);
+                        setContactNumber('+63' + digits);
+                      }}
+                    />
+                  </View>
+                </View>
+
+                <View style={sx.modalSection}>
+                  <Text style={sx.modalSectionLabel}>Payment Method</Text>
+                  <View style={sx.chipRow}>
+                    {(['cash', 'gcash'] as const).map(method => {
+                      const active = paymentMethod === method;
+                      return (
+                        <TouchableOpacity
+                          key={method}
+                          style={[sx.payChip, active && sx.payChipActive]}
+                          onPress={() => setPaymentMethod(method)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={[sx.payChipIcon, active && sx.payChipIconActive]}>
+                            <MaterialIcons
+                              name={method === 'cash' ? 'payments' : 'account-balance-wallet'}
+                              size={20}
+                              color={active ? '#fff' : C.inkMid}
+                            />
+                          </View>
+                          <Text style={[sx.payChipLabel, active && sx.payChipLabelActive]}>
+                            {method === 'cash' ? 'Cash' : 'GCash'}
+                          </Text>
+                          {active && (
+                            <View style={sx.payChipCheck}>
+                              <MaterialIcons name="check" size={11} color={C.primary} />
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={sx.modalSection}>
+                  <Text style={sx.modalSectionLabel}>Type of Item</Text>
+                  <View style={sx.itemTypeGrid}>
+                    {ITEM_TYPES.map(type => {
+                      const active = itemType === type;
+                      return (
+                        <TouchableOpacity
+                          key={type}
+                          style={[sx.itemTypeChip, active && sx.itemTypeChipActive]}
+                          onPress={() => setItemType(type)}
+                          activeOpacity={0.8}
+                        >
+                          {active && (
+                            <MaterialIcons
+                              name="check"
+                              size={13}
+                              color={C.primary}
+                              style={{ marginRight: 4 }}
+                            />
+                          )}
+                          <Text style={[sx.itemTypeText, active && sx.itemTypeTextActive]}>
+                            {type}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={sx.modalSection}>
+                  <Text style={sx.modalSectionLabel}>Notes (optional)</Text>
+                  <View style={[sx.modalInputRow, { alignItems: 'flex-start' }]}>
+                    <MaterialIcons name="notes" size={18} color={C.inkSoft} style={{ marginRight: 8, marginTop: 8 }} />
+                    <TextInput
+                      style={[sx.modalTextInput, { height: 80, textAlignVertical: 'top' }]}
+                      placeholder="Any special instructions?"
+                      placeholderTextColor={C.inkSoft}
+                      multiline
+                      value={notes}
+                      onChangeText={setNotes}
+                    />
+                  </View>
+                </View>
+              </ScrollView>
+
+              <View style={sx.modalFooter}>
+                <TouchableOpacity
+                  style={[sx.modalPrimaryBtn, (!detailsValid || submitting) && sx.modalPrimaryBtnOff]}
+                  disabled={!detailsValid || submitting}
+                  activeOpacity={0.85}
+                  onPress={handleSubmit}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <Text style={sx.modalPrimaryBtnText}>Place Order</Text>
+                      <View style={sx.modalPrimaryBtnArrow}>
+                        <MaterialIcons name="check" size={16} color={C.primary} />
+                      </View>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+// ── UserHome ──────────────────────────────────────────────────────────────────
+function UserHome({ userId, userName }: { userId: string; userName?: string | null }) {
+  const [active,  setActive]  = useState<ActiveOrder | null>(null);
+  const [recent,  setRecent]  = useState<RecentOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { time, name } = getGreeting(userName);
+
+  useFocusEffect(useCallback(() => {
+    let ok = true;
+    (async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from('PACKAGES')
+        .select('ID, STATUS, PICKUP_ADDRESS, RECIPIENT_ADDRESS, PICKUP_LAT, PICKUP_LNG, PRICE')
+        .eq('SENDER_ID', userId)
+        .order('CREATED_AT', { ascending: false })
+        .limit(5);
+      if (!ok) return;
+      const list = (data ?? []) as ActiveOrder[];
+      setActive(list.find(o => o.STATUS === 'PENDING' || o.STATUS === 'IN_PROGRESS') ?? null);
+      setRecent(list);
+      setLoading(false);
+    })();
+    return () => { ok = false; };
+  }, [userId]));
+
+  if (loading) return <View style={sx.center}><ActivityIndicator size="large" color={C.primaryMid} /></View>;
+
+  const mapUrl = active?.PICKUP_LAT && active?.PICKUP_LNG
+    ? staticMapUrl(active.PICKUP_LAT, active.PICKUP_LNG)
+    : staticMapUrl(14.5995, 120.9842);
+
+  return (
+    <>
+      <View style={sx.greetBlock}>
+        <Text style={sx.greetTime}>{time},</Text>
+        <Text style={sx.greetName}>{name} 👋</Text>
+        <Text style={sx.greetSub}>Where are we delivering today?</Text>
+      </View>
+
+      <BookingForm />
+
+      {active && (
+        <>
+          <SectionLabel title="Active Order" />
+          <View style={sx.trackCard}>
+            <View style={sx.trackTop}>
+              <View>
+                <Text style={sx.trackId}>#{active.ID.slice(0, 8).toUpperCase()}</Text>
+                <StatusBadge status={active.STATUS} />
+              </View>
+              <View style={sx.mapThumb}>
+                <Image source={{ uri: mapUrl }} style={sx.mapImg} contentFit="cover" />
+              </View>
+            </View>
+            <View style={sx.trackRoute}>
+              <View style={sx.trackRouteRow}>
+                <View style={[sx.tDot, { backgroundColor: C.accent }]} />
+                <Text style={sx.trackAddr} numberOfLines={1}>{active.PICKUP_ADDRESS ?? '—'}</Text>
+              </View>
+              <View style={sx.trackLine} />
+              <View style={sx.trackRouteRow}>
+                <View style={[sx.tDot, { backgroundColor: C.danger }]} />
+                <Text style={sx.trackAddr} numberOfLines={1}>{active.RECIPIENT_ADDRESS ?? '—'}</Text>
+              </View>
+            </View>
+            {active.PRICE ? (
+              <View style={sx.trackFooter}>
+                <Text style={sx.trackPriceLbl}>Total</Text>
+                <Text style={sx.trackPrice}>₱{Number(active.PRICE).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</Text>
+              </View>
+            ) : null}
+          </View>
+        </>
+      )}
+
+      {recent.length > 0 && (
+        <>
+          <SectionLabel title="Recent Orders" action="See all" onAction={() => router.navigate('/(tabs)/orders')} />
+          <View style={sx.recentCard}>
+            {recent.slice(0, 4).map((item, idx) => {
+              const label = item.STATUS ?? 'PENDING';
+              const color = STATUS_COLOR[label] ?? '#888';
+              return (
+                <View key={item.ID} style={[sx.recentRow, idx < Math.min(recent.length, 4) - 1 && sx.recentBorder]}>
+                  <View style={sx.recentLeft}>
+                    <View style={sx.recentIcon}><MaterialIcons name="local-shipping" size={13} color={C.primaryMid} /></View>
+                    <Text style={sx.recentId}>#{item.ID.slice(0, 8).toUpperCase()}</Text>
+                  </View>
+                  <View style={[sx.badge, { backgroundColor: color + '18', borderColor: color + '55' }]}>
+                    <View style={[sx.badgeDot, { backgroundColor: color }]} />
+                    <Text style={[sx.badgeText, { color }]}>{label.replace('_', ' ')}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </>
+      )}
+    </>
+  );
+}
+
+// ── DriverHome ────────────────────────────────────────────────────────────────
+function DriverHome({ userId, userName }: { userId: string; userName?: string | null }) {
+  const [stats,    setStats]    = useState<DriverStats>({ totalDeliveries: 0, totalEarnings: 0, inProgressCount: 0, cancelledCount: 0 });
+  const [delivery, setDelivery] = useState<ActiveDelivery | null>(null);
+  const [loading,  setLoading]  = useState(true);
+  const { time, name } = getGreeting(userName);
+
+  useFocusEffect(useCallback(() => {
+    let ok = true;
+    (async () => {
+      setLoading(true);
+      const [cRes, aRes, ipRes, canRes] = await Promise.all([
+        supabase.from('PACKAGES').select('PRICE').eq('DRIVER_ID', userId).eq('STATUS', 'COMPLETE'),
+        supabase.from('PACKAGES').select('ID, PICKUP_ADDRESS, RECIPIENT_ADDRESS, RECIPIENT_NAME, RECIPIENT_NUMBER, PRICE').eq('DRIVER_ID', userId).eq('STATUS', 'IN_PROGRESS').limit(1).maybeSingle(),
+        supabase.from('PACKAGES').select('*', { count: 'exact', head: true }).eq('DRIVER_ID', userId).eq('STATUS', 'IN_PROGRESS'),
+        supabase.from('PACKAGES').select('*', { count: 'exact', head: true }).eq('DRIVER_ID', userId).eq('STATUS', 'CANCELLED'),
+      ]);
+      if (!ok) return;
+      const completed = cRes.data ?? [];
+      setStats({
+        totalDeliveries: completed.length,
+        totalEarnings: completed.reduce((s: number, r: { PRICE: number | null }) => s + (r.PRICE ?? 0), 0),
+        inProgressCount: ipRes.count ?? 0,
+        cancelledCount:  canRes.count ?? 0,
+      });
+      setDelivery((aRes.data as ActiveDelivery | null) ?? null);
+      setLoading(false);
+    })();
+    return () => { ok = false; };
+  }, [userId]));
+
+  if (loading) return <View style={sx.center}><ActivityIndicator size="large" color={C.primaryMid} /></View>;
+
+  return (
+    <>
+      <View style={sx.greetBlock}>
+        <Text style={sx.greetTime}>{time},</Text>
+        <Text style={sx.greetName}>{name} 🚚</Text>
+        <Text style={sx.greetSub}>Ready to hit the road?</Text>
+      </View>
+
+      <View style={sx.earnerBanner}>
+        <View>
+          <Text style={sx.earnerLbl}>Total Earnings</Text>
+          <Text style={sx.earnerVal}>₱{stats.totalEarnings.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</Text>
+          <View style={sx.earnerBadge}>
+            <MaterialIcons name="trending-up" size={11} color={C.accent} />
+            <Text style={sx.earnerBadgeText}>{stats.totalDeliveries} completed</Text>
+          </View>
+        </View>
+
+      </View>
+
+      <View style={sx.pillRow}>
+        {[
+          { l: 'In Progress', n: stats.inProgressCount, c: C.primaryLt },
+          { l: 'Completed',   n: stats.totalDeliveries,  c: C.accent    },
+          { l: 'Cancelled',   n: stats.cancelledCount,   c: C.danger    },
+        ].map(p => (
+          <View key={p.l} style={sx.pill}>
+            <Text style={[sx.pillNum, { color: p.c }]}>{p.n}</Text>
+            <Text style={sx.pillLbl}>{p.l}</Text>
+          </View>
+        ))}
+      </View>
+
+      <SectionLabel title="Active Delivery" />
+
+      {delivery ? (
+        <View style={sx.delivCard}>
+          <View style={sx.delivRouteCol}>
+            {[
+              { dot: C.accent, lbl: 'PICK UP',  addr: delivery.PICKUP_ADDRESS },
+              { dot: C.danger, lbl: 'DROP OFF', addr: delivery.RECIPIENT_ADDRESS },
+            ].map((r, i) => (
+              <View key={r.lbl}>
+                <View style={sx.delivRouteRow}>
+                  <View style={[sx.tDot, { backgroundColor: r.dot }]} />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={sx.delivRouteLbl}>{r.lbl}</Text>
+                    <Text style={sx.delivRouteAddr} numberOfLines={2}>{r.addr ?? '—'}</Text>
+                  </View>
+                </View>
+                {i === 0 && <View style={sx.delivConn} />}
+              </View>
+            ))}
+          </View>
+          <View style={sx.delivFootRow}>
+            <View>
+              <Text style={sx.delivRecipLbl}>RECIPIENT</Text>
+              <Text style={sx.delivRecip}>{delivery.RECIPIENT_NAME ?? '—'}</Text>
+              {delivery.RECIPIENT_NUMBER && <Text style={sx.delivPhone}>{delivery.RECIPIENT_NUMBER}</Text>}
+            </View>
+            {delivery.PRICE && (
+              <View style={sx.delivPriceChip}>
+                <Text style={sx.delivPriceText}>₱{Number(delivery.PRICE).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</Text>
+              </View>
+            )}
+          </View>
+          <TouchableOpacity style={sx.navBtn} activeOpacity={0.85}>
+            <MaterialIcons name="navigation" size={15} color="#fff" />
+            <Text style={sx.navBtnTxt}>Navigate</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={sx.emptyDeliv}>
+          <View style={sx.emptyDelivIcon}><MaterialIcons name="search" size={26} color={C.primaryMid} /></View>
+          <Text style={sx.emptyDelivTxt}>No active delivery</Text>
+          <Text style={sx.emptyDelivSub}>Find orders to start delivering</Text>
+          <TouchableOpacity style={sx.findBtn} activeOpacity={0.85} onPress={() => router.navigate('/(tabs)/orders')}>
+            <Text style={sx.findBtnTxt}>Browse Available Orders</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </>
+  );
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+export default function HomeScreen() {
+  const { user, userRole } = useAuth();
+  const isDriver = userRole === 'DRIVER';
+  const userName = (user as any)?.user_metadata?.name ?? (user as any)?.email ?? null;
+
+  return (
+    <SafeAreaView style={sx.safe} edges={['top']}>
+      <ScrollView
+        style={sx.scroll}
+        contentContainerStyle={sx.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Top bar */}
+        <View style={sx.topBar}>
+          <View style={sx.logo}>
+            <Image source={require('../../assets/images/kargadoor_logo.png')} style={sx.logoImg} contentFit="contain" />
+            <Text style={sx.logoTxt}>KARGADOOR</Text>
+          </View>
+          <View style={sx.topRight}>
+            <TouchableOpacity style={sx.iconBtn} hitSlop={8}>
+              <MaterialIcons name="notifications-none" size={22} color={C.ink} />
+              <View style={sx.notifDot} />
+            </TouchableOpacity>
+            <TouchableOpacity style={sx.avatarBtn} hitSlop={8}>
+              <Text style={sx.avatarTxt}>{userName ? userName[0].toUpperCase() : 'U'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {user ? (
+          isDriver
+            ? <DriverHome userId={user.id} userName={userName} />
+            : <UserHome  userId={user.id} userName={userName} />
+        ) : (
+          <View style={sx.center}>
+            <MaterialIcons name="lock-outline" size={40} color={C.inkSoft} />
+            <Text style={[sx.emptyDelivTxt, { marginTop: 14 }]}>Sign in to continue</Text>
+          </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+const sx = StyleSheet.create({
+  safe:    { flex: 1, backgroundColor: C.bg },
+  scroll:  { flex: 1 },
+  content: { paddingHorizontal: 18, paddingTop: 4, paddingBottom: 48 },
+  center:  { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 },
+
+  // ── top bar
+  topBar:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, paddingTop: 4 },
+  logo:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  logoImg:  { width: 32, height: 32 },
+  logoTxt:  { fontSize: 14, fontWeight: '800', color: C.ink, letterSpacing: 2.2 },
+  topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  iconBtn:  { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  notifDot: { position: 'absolute', top: 7, right: 7, width: 7, height: 7, borderRadius: 4, backgroundColor: C.danger, borderWidth: 1.5, borderColor: C.bg },
+  avatarBtn:{ width: 36, height: 36, borderRadius: 18, backgroundColor: C.primaryMid, alignItems: 'center', justifyContent: 'center' },
+  avatarTxt:{ fontSize: 14, fontWeight: '700', color: '#fff' },
+
+  // ── greeting
+  greetBlock:{ marginBottom: 22 },
+  greetTime: { fontSize: 13, color: C.inkMid, fontWeight: '500' },
+  greetName: { fontSize: 27, fontWeight: '800', color: C.ink, marginTop: 1, letterSpacing: -0.5 },
+  greetSub:  { fontSize: 13, color: C.inkSoft, marginTop: 4 },
+
+  // ── booking card
+  bookingCard: {
+    backgroundColor: C.surface,
+    borderRadius: 24,
+    padding: 18,
+    marginBottom: 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 18,
+    elevation: 5,
+  },
+
+  // ── route
+  routeWrap:   { marginBottom: 18 },
+  inputRow:    { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surfaceAlt, borderRadius: 13, paddingHorizontal: 14, paddingVertical: 13, gap: 10 },
+  routeDot:    { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
+  routeInput:  { flex: 1, fontSize: 14, color: C.ink, fontWeight: '500' },
+  locBtn:      { padding: 3 },
+  routeSep:    { flexDirection: 'row', alignItems: 'center', marginVertical: 5, gap: 8, paddingHorizontal: 6 },
+  routeSepLine:{ flex: 1, height: 1, backgroundColor: C.border },
+  swapBtn:     { width: 28, height: 28, borderRadius: 14, backgroundColor: C.accentDim, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border },
+
+  // ── vehicle heading
+  vHeadRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  vHeadTitle: { fontSize: 13, fontWeight: '700', color: C.ink, letterSpacing: 0.3 },
+  vHeadCount: { fontSize: 12, color: C.inkSoft },
+
+  // ── vehicle scroll
+  vScrollOuter: { marginHorizontal: -18, marginBottom: 0 },
+  vScroll:      { paddingHorizontal: 18, gap: 10, paddingBottom: 6 },
+
+  vCard: {
+    width: 110,
+    backgroundColor: C.surfaceAlt,
+    borderRadius: 18,
+    padding: 12,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  vCardActive: { backgroundColor: '#EDFFF7', borderColor: C.accent },
+
+  vTag:     { position: 'absolute', top: 8, right: 8, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5 },
+  vTagText: { fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
+
+  vEmojiWrap:       { width: 42, height: 42, borderRadius: 13, backgroundColor: 'rgba(27,107,74,0.09)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  vEmojiWrapActive: { backgroundColor: C.primary },
+  vEmoji:    { fontSize: 20 },
+  vName:     { fontSize: 11, fontWeight: '700', color: C.ink, marginBottom: 2, lineHeight: 15 },
+  vNameActive: { color: C.primary },
+  vCap:      { fontSize: 10, color: C.inkSoft, marginBottom: 8 },
+  vMeta:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  vEta:      { fontSize: 9, color: C.inkSoft },
+  vPrice:    { fontSize: 13, fontWeight: '800', color: C.primaryMid },
+  vActiveBar:{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, backgroundColor: C.accent },
+
+  // ── add-on wrapper
+  addOnWrapper: { marginTop: 16 },
+
+  // ── add-on panel
+  addOnPanel: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+  },
+
+  addOnHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: C.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  addOnTitle:      { fontSize: 14, fontWeight: '800', color: '#fff' },
+  addOnHeaderSub:  { fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 2 },
+  addOnOptionalPill:{ backgroundColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8 },
+  addOnOptionalText:{ fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.8)', letterSpacing: 1 },
+
+  addOnCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    backgroundColor: C.surface,
+    gap: 12,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  addOnCardBorder: { borderTopWidth: 1, borderTopColor: C.border },
+  addOnCardActive: { backgroundColor: '#FDFDFF' },
+
+  addOnStrip:   { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3 },
+  addOnIconBlob:{ width: 44, height: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  addOnBody:    { flex: 1 },
+  addOnLabel:   { fontSize: 13, fontWeight: '700', color: C.ink, marginBottom: 3 },
+  addOnDesc:    { fontSize: 11, color: C.inkSoft, lineHeight: 16 },
+  addOnRight:   { alignItems: 'flex-end', gap: 7, flexShrink: 0 },
+  addOnPrice:   { fontSize: 13, fontWeight: '700', color: C.inkMid },
+  addOnCheck:   { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: C.border, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+
+  addOnFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: C.surfaceAlt,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+  },
+  addOnFooterLeft:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  addOnFooterLabel: { fontSize: 12, color: C.inkMid, fontWeight: '600' },
+  addOnFooterTotal: { fontSize: 15, fontWeight: '800', color: C.primary },
+
+  // ── fare
+  fareRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, marginBottom: 14, paddingHorizontal: 2 },
+  fareLabel:     { fontSize: 10, color: C.inkSoft, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 },
+  fareValue:     { fontSize: 28, fontWeight: '800', color: C.ink, letterSpacing: -0.5 },
+  fareBreakdown: { fontSize: 11, color: C.inkSoft },
+  fareEtaChip:   { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.accentDim, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10 },
+  fareEtaText:   { fontSize: 12, fontWeight: '700', color: C.primaryMid },
+
+  // ── book btn
+  bookBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    backgroundColor: C.primary, borderRadius: 14, paddingVertical: 15,
+    shadowColor: C.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.28, shadowRadius: 10, elevation: 6,
+  },
+  bookBtnOff:   { backgroundColor: C.inkSoft, shadowOpacity: 0 },
+  bookBtnText:  { fontSize: 15, fontWeight: '700', color: '#fff' },
+  bookBtnArrow: { width: 28, height: 28, borderRadius: 14, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
+
+  // ── section label
+  sectionRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: C.ink },
+  sectionAction:{ fontSize: 12, fontWeight: '600', color: C.primaryMid },
+
+  // ── badge
+  badge:    { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 7, borderWidth: 1 },
+  badgeDot: { width: 6, height: 6, borderRadius: 3 },
+  badgeText:{ fontSize: 9, fontWeight: '700', letterSpacing: 0.3 },
+
+  // ── track card (user active order)
+  trackCard: { backgroundColor: C.cardDark, borderRadius: 20, padding: 18, marginBottom: 28 },
+  trackTop:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 },
+  trackId:   { fontSize: 18, fontWeight: '800', color: '#fff', marginBottom: 6 },
+  mapThumb:  { width: 88, height: 70, borderRadius: 12, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.1)' },
+  mapImg:    { width: '100%', height: '100%' },
+  trackRoute:{ backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 12, padding: 13, marginBottom: 13 },
+  trackRouteRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  tDot:      { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
+  trackAddr: { flex: 1, fontSize: 13, color: 'rgba(255,255,255,0.85)', fontWeight: '500' },
+  trackLine: { width: 1, height: 12, backgroundColor: 'rgba(255,255,255,0.18)', marginLeft: 4, marginVertical: 3 },
+  trackFooter:{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  trackPriceLbl:{ fontSize: 12, color: 'rgba(255,255,255,0.5)' },
+  trackPrice:   { fontSize: 17, fontWeight: '800', color: C.accent },
+
+  // ── recent orders
+  recentCard:  { backgroundColor: C.surface, borderRadius: 16, overflow: 'hidden', marginBottom: 28, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
+  recentRow:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 13 },
+  recentBorder:{ borderBottomWidth: 1, borderBottomColor: C.border },
+  recentLeft:  { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  recentIcon:  { width: 30, height: 30, borderRadius: 9, backgroundColor: C.accentDim, alignItems: 'center', justifyContent: 'center' },
+  recentId:    { fontSize: 13, fontWeight: '600', color: C.ink },
+
+  // ── driver earnings
+  earnerBanner:{ backgroundColor: C.cardDark, borderRadius: 20, padding: 22, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  earnerLbl:   { fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 4 },
+  earnerVal:   { fontSize: 30, fontWeight: '800', color: '#fff', letterSpacing: -1 },
+  earnerBadge: { backgroundColor: '#fff',flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8,  alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  earnerBadgeText: { fontSize: 11, color: C.accent, fontWeight: '600' },
+
+  // ── pills
+  pillRow: { flexDirection: 'row', gap: 10, marginBottom: 28 },
+  pill:    { flex: 1, backgroundColor: C.surface, borderRadius: 14, padding: 14, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 2 },
+  pillNum: { fontSize: 22, fontWeight: '800', marginBottom: 3 },
+  pillLbl: { fontSize: 10, color: C.inkSoft, fontWeight: '600', textAlign: 'center' },
+
+  // ── driver delivery card
+  delivCard:     { backgroundColor: C.surface, borderRadius: 20, padding: 18, marginBottom: 28, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 10, elevation: 3 },
+  delivRouteCol: { marginBottom: 14 },
+  delivRouteRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  delivConn:     { width: 1, height: 14, backgroundColor: C.border, marginLeft: 4, marginVertical: 3 },
+  delivRouteLbl: { fontSize: 9, color: C.inkSoft, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 2 },
+  delivRouteAddr:{ fontSize: 13, color: C.ink, fontWeight: '500' },
+  delivFootRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingTop: 14, borderTopWidth: 1, borderTopColor: C.border, marginBottom: 14 },
+  delivRecipLbl: { fontSize: 9, color: C.inkSoft, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 2 },
+  delivRecip:    { fontSize: 13, color: C.ink, fontWeight: '600' },
+  delivPhone:    { fontSize: 11, color: C.inkSoft, marginTop: 2 },
+  delivPriceChip:{ backgroundColor: C.accentDim, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 10 },
+  delivPriceText:{ fontSize: 14, fontWeight: '800', color: C.primary },
+
+  navBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: C.primaryMid, borderRadius: 12, paddingVertical: 12 },
+  navBtnTxt: { fontSize: 13, fontWeight: '700', color: '#fff' },
+
+  emptyDeliv:     { backgroundColor: C.surface, borderRadius: 20, padding: 32, alignItems: 'center', marginBottom: 28, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
+  emptyDelivIcon: { width: 58, height: 58, borderRadius: 18, backgroundColor: C.accentDim, alignItems: 'center', justifyContent: 'center', marginBottom: 13 },
+  emptyDelivTxt:  { fontSize: 15, fontWeight: '700', color: C.ink },
+  emptyDelivSub:  { fontSize: 12, color: C.inkSoft, marginTop: 4, marginBottom: 18, textAlign: 'center' },
+  findBtn:        { backgroundColor: C.accentDim, borderRadius: 12, paddingVertical: 11, paddingHorizontal: 22, borderWidth: 1, borderColor: C.accent + '55' },
+  findBtnTxt:     { fontSize: 13, fontWeight: '700', color: C.primaryMid },
+
+  // ── modal (inline booking details)
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: C.surface,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 20,
+    maxHeight: '92%',
+  },
+  modalScroll: { marginTop: 4 },
+  modalScrollContent: { paddingBottom: 16 },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalTitle: { fontSize: 17, fontWeight: '800', color: C.ink },
+
+  modalVehicleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.surfaceAlt,
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 12,
+  },
+  modalVehicleEmoji: { fontSize: 26, marginRight: 8 },
+  modalVehicleLabel: { fontSize: 14, fontWeight: '700', color: C.ink },
+  modalVehicleSub:   { fontSize: 11, color: C.inkSoft, marginTop: 2 },
+  modalFarePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: C.accentDim,
+    borderRadius: 999,
+  },
+  modalFarePillText: { fontSize: 12, fontWeight: '700', color: C.primary },
+
+  modalSection: { marginTop: 16 },
+  modalSectionLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: C.inkMid,
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+    marginBottom: 8,
+  },
+  modalInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.surfaceAlt,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  modalTextInput: { flex: 1, fontSize: 14, color: C.ink, fontWeight: '500' },
+
+  // reuse chips + item type styles from add screen
+  chipRow:   { flexDirection: 'row', gap: 12 },
+  payChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.surfaceAlt,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    padding: 12,
+    gap: 10,
+  },
+  payChipActive:     { borderColor: C.accent, backgroundColor: C.accentDim },
+  payChipIcon:       { width: 36, height: 36, borderRadius: 10, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' },
+  payChipIconActive: { backgroundColor: C.primary },
+  payChipLabel:      { flex: 1, fontSize: 14, fontWeight: '600', color: C.inkMid },
+  payChipLabelActive:{ color: C.primary },
+  payChipCheck:      { width: 20, height: 20, borderRadius: 10, backgroundColor: C.accentDim, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.accent },
+
+  itemTypeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
+  itemTypeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    backgroundColor: C.surfaceAlt,
+  },
+  itemTypeChipActive: { backgroundColor: C.accentDim, borderColor: C.accent },
+  itemTypeText:       { fontSize: 12, fontWeight: '600', color: C.inkMid },
+  itemTypeTextActive: { color: C.primary },
+
+  modalFooter: { marginTop: 18 },
+  modalPrimaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: C.primary,
+    borderRadius: 14,
+    height: 50,
+  },
+  modalPrimaryBtnOff: { backgroundColor: C.inkSoft },
+  modalPrimaryBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  modalPrimaryBtnArrow: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: C.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
